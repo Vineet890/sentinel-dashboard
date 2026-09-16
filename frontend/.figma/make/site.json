@@ -1,0 +1,10 @@
+{
+  "description": "Monitors mine subsidence with real-time data visualizations and alerts, enabling operators to detect and respond to early warning signs efficiently.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
