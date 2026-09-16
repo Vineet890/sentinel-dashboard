@@ -76,3 +76,12 @@ app.post('/api/test-alert', (req, res) => {
 app.listen(PORT, () => {
     console.log(`Backend running on http://localhost:${PORT}`);
 });
+
+app.post('/api/test-alert', (req, res) => {
+  console.log('🚨 GSM TEST ALERT SENT');
+
+  res.json({
+    success: true,
+    message: 'Test alert dispatched'
+  });
+});

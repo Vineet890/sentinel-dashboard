@@ -16,6 +16,15 @@ export interface LogEntry {
   msg: string
   level: 'info' | 'warn' | 'critical'
 }
+export interface Telemetry {
+  timestamp: string
+  vibration: string
+  acoustic: string
+  pressure: string
+  temperature: string
+  strain: string
+  status: SystemState
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -810,14 +819,43 @@ const EVENT_POOL: Record<SystemState, { msg: string; level: LogEntry['level'] }[
   ],
 }
 
+function createLogFromTelemetry(data: Telemetry, id: number): LogEntry {
+  const time = tsFor(new Date(data.timestamp))
+
+  if (data.status === 'CRITICAL') {
+    return {
+      id,
+      ts: time,
+      msg: `CRITICAL sensor reading — vibration ${data.vibration}G`,
+      level: 'critical',
+    }
+  }
+
+  if (data.status === 'WATCH') {
+    return {
+      id,
+      ts: time,
+      msg: `Sensor reading requires monitoring — vibration ${data.vibration}G`,
+      level: 'warn',
+    }
+  }
+
+  return {
+    id,
+    ts: time,
+    msg: `Sensors nominal — vibration ${data.vibration}G, pressure ${data.pressure} mbar`,
+    level: 'info',
+  }
+}
+
 export default function App() {
-  const [systemState, setSystemState] = useState<SystemState>('NORMAL')
-  const [connected] = useState(true)
-  const [vibData, setVibData] = useState<DataPoint[]>(buildVib)
-  const [acoData, setAcoData] = useState<DataPoint[]>(buildAco)
-  const [envData, setEnvData] = useState<DataPoint[]>(buildEnv)
-  const [strData, setStrData] = useState<DataPoint[]>(buildStrain)
-  const [logEntries, setLogEntries] = useState<LogEntry[]>(buildLog)
+ const [systemState, setSystemState] = useState<SystemState>('NORMAL')
+const [connected, setConnected] = useState(false)
+const [vibData, setVibData] = useState<DataPoint[]>([])
+const [acoData, setAcoData] = useState<DataPoint[]>([])
+const [envData, setEnvData] = useState<DataPoint[]>([])
+const [strData, setStrData] = useState<DataPoint[]>([])
+const [logEntries, setLogEntries] = useState<LogEntry[]>([])
   const [camTs, setCamTs] = useState(nowStr)
 
   const stateRef = useRef<SystemState>('NORMAL')
@@ -827,30 +865,58 @@ export default function App() {
     setLogEntries((prev) => [...prev.slice(-149), { id: ++_logId, ts: nowStr(), msg, level }])
   }, [])
 
-  // Live data tick — 1 s
-  useEffect(() => {
-    const tick = setInterval(() => {
-      const st = stateRef.current
-      const t = nowStr()
-      setVibData((prev) => {
-        const last = prev[prev.length - 1]?.v ?? 0.021
-        return [...prev.slice(-(MAX_PTS - 1)), { t, v: nextVib(st, last) }]
-      })
-      setAcoData((prev) => [...prev.slice(-(MAX_PTS - 1)), { t, v: nextAco(st) }])
-      setEnvData((prev) => {
-        const last = prev[prev.length - 1]
-        return [
-          ...prev.slice(-(MAX_PTS - 1)),
-          { t, v: nextPressure(last?.v ?? 1013.5), v2: nextTemp(last?.v2 ?? 21.3) },
-        ]
-      })
-      setStrData((prev) => {
-        const last = prev[prev.length - 1]?.v ?? 891
-        return [...prev.slice(-(MAX_PTS - 1)), { t, v: nextStrain(st, last) }]
-      })
-    }, 1000)
-    return () => clearInterval(tick)
-  }, [])
+  // Fetch live telemetry from backend
+useEffect(() => {
+  const fetchTelemetry = async () => {
+    try {
+      const response = await fetch('http://localhost:5000/api/telemetry')
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch telemetry')
+      }
+
+      const data: Telemetry = await response.json()
+
+      const t = tsFor(new Date(data.timestamp))
+
+      setConnected(true)
+      setSystemState(data.status)
+
+      setVibData((prev) => [
+        ...prev.slice(-(MAX_PTS - 1)),
+        { t, v: Number(data.vibration) },
+      ])
+
+      setAcoData((prev) => [
+        ...prev.slice(-(MAX_PTS - 1)),
+        { t, v: Number(data.acoustic) },
+      ])
+
+      setEnvData((prev) => [
+        ...prev.slice(-(MAX_PTS - 1)),
+        {
+          t,
+          v: Number(data.pressure),
+          v2: Number(data.temperature),
+        },
+      ])
+
+      setStrData((prev) => [
+        ...prev.slice(-(MAX_PTS - 1)),
+        { t, v: Number(data.strain) },
+      ])
+    } catch (error) {
+      console.error('Telemetry fetch failed:', error)
+      setConnected(false)
+    }
+  }
+
+  fetchTelemetry()
+
+  const interval = setInterval(fetchTelemetry, 2000)
+
+  return () => clearInterval(interval)
+}, [])
 
   // Camera timestamp — every 30 s
   useEffect(() => {
@@ -858,15 +924,7 @@ export default function App() {
     return () => clearInterval(t)
   }, [])
 
-  // Random events — every ~8 s
-  useEffect(() => {
-    const t = setInterval(() => {
-      const pool = EVENT_POOL[stateRef.current]
-      const { msg, level } = pool[Math.floor(Math.random() * pool.length)]
-      addLog(msg, level)
-    }, 8200)
-    return () => clearInterval(t)
-  }, [addLog])
+  
 
   // Log state transitions
   const prevStateRef = useRef<SystemState>(systemState)
@@ -880,9 +938,51 @@ export default function App() {
     }
   }, [systemState, addLog])
 
-  const handleSendAlert = useCallback(() => {
-    addLog('GSM test alert dispatched — awaiting acknowledgement', 'warn')
-  }, [addLog])
+  // Fetch event history from backend
+useEffect(() => {
+  const fetchEvents = async () => {
+    try {
+      const response = await fetch('http://localhost:5000/api/events')
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch events')
+      }
+
+      const data: Telemetry[] = await response.json()
+
+      const logs = data.map((item, index) =>
+        createLogFromTelemetry(item, index + 1)
+      )
+
+      setLogEntries(logs)
+    } catch (error) {
+      console.error('Events fetch failed:', error)
+    }
+  }
+
+  fetchEvents()
+
+  const interval = setInterval(fetchEvents, 2000)
+
+  return () => clearInterval(interval)
+}, [])
+
+  const handleSendAlert = useCallback(async () => {
+  try {
+    const response = await fetch(
+      'http://localhost:5000/api/test-alert',
+      {
+        method: 'POST',
+      }
+    );
+
+    const result = await response.json();
+
+    addLog(result.message, 'warn');
+  } catch (error) {
+    addLog('Alert dispatch failed', 'critical');
+  }
+}, [addLog]);
 
   // Latest values for chart headers
   const lastVib = vibData[vibData.length - 1]?.v
