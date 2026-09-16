@@ -1,3 +1,4 @@
 node_modules/
 .env
 backend/mock_data/sensor_log.csv
+frontend/dist/

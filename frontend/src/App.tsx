@@ -59,78 +59,6 @@ function tsFor(d: Date) {
   return d.toLocaleTimeString('en-GB', { hour12: false })
 }
 
-// ─── Data generators ─────────────────────────────────────────────────────────
-
-function nextVib(state: SystemState, prev: number) {
-  const base = state === 'NORMAL' ? 0.021 : state === 'WATCH' ? 0.083 : 0.192
-  const spread = state === 'NORMAL' ? 0.011 : state === 'WATCH' ? 0.034 : 0.072
-  return +Math.max(0.001, prev * 0.88 + base * 0.12 + (Math.random() - 0.5) * spread).toFixed(4)
-}
-
-function nextAco(state: SystemState) {
-  const base = state === 'NORMAL' ? 51 : state === 'WATCH' ? 69 : 85
-  const spread = state === 'NORMAL' ? 7 : state === 'WATCH' ? 12 : 16
-  return +(base + (Math.random() - 0.5) * spread).toFixed(1)
-}
-
-function nextPressure(prev: number) {
-  return +Math.max(1007, Math.min(1023, prev + (Math.random() - 0.5) * 0.45)).toFixed(1)
-}
-
-function nextTemp(prev: number) {
-  return +Math.max(17, Math.min(27, prev + (Math.random() - 0.5) * 0.11)).toFixed(1)
-}
-
-function nextStrain(state: SystemState, prev: number) {
-  const base = state === 'NORMAL' ? 891 : state === 'WATCH' ? 943 : 989
-  const spread = state === 'NORMAL' ? 9 : state === 'WATCH' ? 23 : 40
-  return +Math.max(800, Math.min(1250, prev * 0.9 + base * 0.1 + (Math.random() - 0.5) * spread)).toFixed(1)
-}
-
-function buildVib(): DataPoint[] {
-  let v = 0.021
-  return Array.from({ length: MAX_PTS }, (_, i) => {
-    v = nextVib('NORMAL', v)
-    return { t: tsFor(new Date(Date.now() - (MAX_PTS - i) * 1000)), v }
-  })
-}
-
-function buildAco(): DataPoint[] {
-  return Array.from({ length: MAX_PTS }, (_, i) => ({
-    t: tsFor(new Date(Date.now() - (MAX_PTS - i) * 1000)),
-    v: nextAco('NORMAL'),
-  }))
-}
-
-function buildEnv(): DataPoint[] {
-  let p = 1013.5, tp = 21.3
-  return Array.from({ length: MAX_PTS }, (_, i) => {
-    p = nextPressure(p)
-    tp = nextTemp(tp)
-    return { t: tsFor(new Date(Date.now() - (MAX_PTS - i) * 1000)), v: p, v2: tp }
-  })
-}
-
-function buildStrain(): DataPoint[] {
-  let s = 891
-  return Array.from({ length: MAX_PTS }, (_, i) => {
-    s = nextStrain('NORMAL', s)
-    return { t: tsFor(new Date(Date.now() - (MAX_PTS - i) * 1000)), v: s }
-  })
-}
-
-function buildLog(): LogEntry[] {
-  const now = Date.now()
-  return [
-    { id: 1, ts: tsFor(new Date(now - 420000)), msg: 'System initialized — Node MN-04 online', level: 'info' },
-    { id: 2, ts: tsFor(new Date(now - 378000)), msg: 'All 6 sensors calibrated and reporting', level: 'info' },
-    { id: 3, ts: tsFor(new Date(now - 312000)), msg: 'Vibration baseline established: 0.021G avg', level: 'info' },
-    { id: 4, ts: tsFor(new Date(now - 258000)), msg: 'Pressure variance within nominal limits', level: 'info' },
-    { id: 5, ts: tsFor(new Date(now - 182000)), msg: 'Self-test complete — all channels OK', level: 'info' },
-    { id: 6, ts: tsFor(new Date(now - 121000)), msg: 'Acoustic AGC adjustment applied', level: 'info' },
-    { id: 7, ts: tsFor(new Date(now - 63000)), msg: 'Camera capture archived — no anomaly', level: 'info' },
-  ]
-}
 
 // ─── Chart tooltip ────────────────────────────────────────────────────────────
 
@@ -180,6 +108,7 @@ interface ChartCardProps {
 function ChartCard({ title, data, lines, unit, yDomain, y2Domain, latestValue, yAxisWidth, y2AxisWidth }: ChartCardProps) {
   const dual = !!y2Domain
   const latest = data[data.length - 1]
+  const hasData = data.length > 0
 
   return (
     <div style={{
@@ -213,20 +142,41 @@ function ChartCard({ title, data, lines, unit, yDomain, y2Domain, latestValue, y
         </div>
       </div>
 
-      <ResponsiveContainer width="100%" height={104}>
-        <LineChart data={data} margin={{ top: 2, right: dual ? 6 : 4, bottom: 0, left: 4 }}>
-          <CartesianGrid strokeDasharray="1 4" stroke={C.border} vertical={false} />
-          <XAxis
-            dataKey="t"
-            tick={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, fill: C.ghost }}
-            tickLine={false}
-            axisLine={{ stroke: C.border }}
-            interval={Math.floor(MAX_PTS / 4)}
-          />
-          {dual ? (
-            <>
+      {hasData ? (
+        <ResponsiveContainer width="100%" height={104}>
+          <LineChart data={data} margin={{ top: 2, right: dual ? 6 : 4, bottom: 0, left: 4 }}>
+            <CartesianGrid strokeDasharray="1 4" stroke={C.border} vertical={false} />
+            <XAxis
+              dataKey="t"
+              tick={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, fill: C.ghost }}
+              tickLine={false}
+              axisLine={{ stroke: C.border }}
+              interval={Math.floor(MAX_PTS / 4)}
+            />
+            {dual ? (
+              <>
+                <YAxis
+                  yAxisId="left"
+                  domain={yDomain || ['auto', 'auto']}
+                  tick={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, fill: C.ghost }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={yAxisWidth ?? 44}
+                  tickCount={4}
+                />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  domain={y2Domain}
+                  tick={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, fill: C.ghost }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={y2AxisWidth ?? 28}
+                  tickCount={4}
+                />
+              </>
+            ) : (
               <YAxis
-                yAxisId="left"
                 domain={yDomain || ['auto', 'auto']}
                 tick={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, fill: C.ghost }}
                 tickLine={false}
@@ -234,43 +184,36 @@ function ChartCard({ title, data, lines, unit, yDomain, y2Domain, latestValue, y
                 width={yAxisWidth ?? 44}
                 tickCount={4}
               />
-              <YAxis
-                yAxisId="right"
-                orientation="right"
-                domain={y2Domain}
-                tick={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, fill: C.ghost }}
-                tickLine={false}
-                axisLine={false}
-                width={y2AxisWidth ?? 28}
-                tickCount={4}
+            )}
+            <Tooltip content={<ChartTooltip />} />
+            {lines.map(l => (
+              <Line
+                key={l.key}
+                type="monotone"
+                dataKey={l.key}
+                name={l.name}
+                stroke={l.color}
+                strokeWidth={1.5}
+                dot={false}
+                isAnimationActive={false}
+                yAxisId={dual ? (l.yAxisId || 'left') : undefined}
               />
-            </>
-          ) : (
-            <YAxis
-              domain={yDomain || ['auto', 'auto']}
-              tick={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, fill: C.ghost }}
-              tickLine={false}
-              axisLine={false}
-              width={yAxisWidth ?? 44}
-              tickCount={4}
-            />
-          )}
-          <Tooltip content={<ChartTooltip />} />
-          {lines.map(l => (
-            <Line
-              key={l.key}
-              type="monotone"
-              dataKey={l.key}
-              name={l.name}
-              stroke={l.color}
-              strokeWidth={1.5}
-              dot={false}
-              isAnimationActive={false}
-              yAxisId={dual ? (l.yAxisId || 'left') : undefined}
-            />
-          ))}
-        </LineChart>
-      </ResponsiveContainer>
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      ) : (
+        <div style={{
+          height: 104, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          border: `1px dashed ${C.border}`, borderRadius: 4,
+        }}>
+          <span style={{
+            fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
+            color: C.ghost, letterSpacing: '0.08em',
+          }}>
+            Awaiting data…
+          </span>
+        </div>
+      )}
 
       <div style={{
         fontFamily: "'JetBrains Mono', monospace", fontSize: 8,
@@ -302,9 +245,11 @@ const SENSOR_ROWS: { label: string; ok: (s: SystemState) => boolean }[] = [
 interface StatusCardProps {
   state: SystemState
   onStateChange: (s: SystemState) => void
+  manualOverride: boolean
+  onSetOverride: (active: boolean) => void
 }
 
-function StatusCard({ state, onStateChange }: StatusCardProps) {
+function StatusCard({ state, onStateChange, manualOverride, onSetOverride }: StatusCardProps) {
   const color = STATE_COLOR[state]
   const glowClass = state === 'WATCH' ? 'pulse-watch' : state === 'CRITICAL' ? 'pulse-critical' : ''
 
@@ -424,28 +369,32 @@ function StatusCard({ state, onStateChange }: StatusCardProps) {
         {STATE_DESC[state]}
       </div>
 
-      {/* Demo state override — narrate "forcing test state" when used on stage */}
+      {/* Demo state override — holds state until "Resume Live" is clicked */}
       <div style={{ width: '100%', paddingLeft: 10, paddingRight: 4 }}>
         <div style={{
           display: 'flex', alignItems: 'center', gap: 5,
           marginBottom: 5,
         }}>
           <svg width="9" height="9" viewBox="0 0 24 24" fill="none">
-            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" stroke="#3A5270" strokeWidth="2.5" strokeLinecap="round" />
-            <path d="M12 9v4m0 4h.01" stroke="#3A5270" strokeWidth="2.5" strokeLinecap="round" />
+            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" stroke={manualOverride ? '#F1C40F' : '#3A5270'} strokeWidth="2.5" strokeLinecap="round" />
+            <path d="M12 9v4m0 4h.01" stroke={manualOverride ? '#F1C40F' : '#3A5270'} strokeWidth="2.5" strokeLinecap="round" />
           </svg>
           <span style={{
             fontFamily: "'Barlow Condensed', sans-serif", fontSize: 8, fontWeight: 600,
-            letterSpacing: '0.16em', textTransform: 'uppercase', color: '#3A5270',
+            letterSpacing: '0.16em', textTransform: 'uppercase',
+            color: manualOverride ? '#F1C40F' : '#3A5270',
           }}>
-            Force Test State
+            {manualOverride ? 'Override Active' : 'Force Test State'}
           </span>
         </div>
         <div style={{ display: 'flex', gap: 5 }}>
           {(['NORMAL', 'WATCH', 'CRITICAL'] as SystemState[]).map((s) => (
             <button
               key={s}
-              onClick={() => onStateChange(s)}
+              onClick={() => {
+                onStateChange(s)
+                onSetOverride(true)
+              }}
               style={{
                 flex: 1, padding: '5px 0',
                 fontFamily: "'Barlow Condensed', sans-serif", fontSize: 9, fontWeight: 700,
@@ -461,6 +410,27 @@ function StatusCard({ state, onStateChange }: StatusCardProps) {
             </button>
           ))}
         </div>
+        {manualOverride && (
+          <button
+            onClick={() => onSetOverride(false)}
+            style={{
+              width: '100%', marginTop: 5, padding: '5px 0',
+              fontFamily: "'Barlow Condensed', sans-serif", fontSize: 9, fontWeight: 700,
+              letterSpacing: '0.1em', textTransform: 'uppercase',
+              border: `1px solid ${C.blue}`,
+              borderRadius: 4, cursor: 'pointer',
+              background: C.blue + '1A',
+              color: C.blue,
+              transition: 'all 0.15s',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+            }}
+          >
+            <svg width="8" height="8" viewBox="0 0 24 24" fill="none">
+              <polygon points="5,3 19,12 5,21" fill={C.blue} />
+            </svg>
+            Resume Live
+          </button>
+        )}
       </div>
     </div>
   )
@@ -515,7 +485,19 @@ function EventLog({ entries }: EventLogProps) {
 
       {/* Scrollable entries */}
       <div className="sentinel-log" style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
-        {entries.map((e) => (
+        {entries.length === 0 ? (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            height: '100%', minHeight: 60,
+          }}>
+            <span style={{
+              fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
+              color: C.ghost, letterSpacing: '0.08em',
+            }}>
+              No events recorded
+            </span>
+          </div>
+        ) : entries.map((e) => (
           <div
             key={e.id}
             style={{
@@ -559,9 +541,11 @@ interface TopBarProps {
   state: SystemState
   nodeId: string
   connected: boolean
+  lastUpdateAgo: number | null
+  manualOverride: boolean
 }
 
-function TopBar({ state, nodeId, connected }: TopBarProps) {
+function TopBar({ state, nodeId, connected, lastUpdateAgo, manualOverride }: TopBarProps) {
   const [clock, setClock] = useState(nowStr())
 
   useEffect(() => {
@@ -615,7 +599,28 @@ function TopBar({ state, nodeId, connected }: TopBarProps) {
         }}>
           {connected ? 'Online' : 'Offline'}
         </span>
+        {!connected && lastUpdateAgo !== null && (
+          <span style={{
+            fontFamily: "'JetBrains Mono', monospace", fontSize: 9,
+            color: '#E74C3C', opacity: 0.7,
+          }}>
+            {lastUpdateAgo}s ago
+          </span>
+        )}
       </div>
+
+      {manualOverride && (
+        <div style={{
+          padding: '3px 8px', borderRadius: 3,
+          border: '1px solid #F1C40F50',
+          background: '#F1C40F18',
+          fontFamily: "'Barlow Condensed', sans-serif", fontSize: 9, fontWeight: 700,
+          letterSpacing: '0.12em', textTransform: 'uppercase',
+          color: '#F1C40F',
+        }}>
+          Override
+        </div>
+      )}
 
       <div style={{ width: 1, height: 22, background: C.border }} />
 
@@ -697,17 +702,27 @@ function BottomBar({ camTimestamp, onSendAlert }: BottomBarProps) {
         Latest Capture
       </span>
 
-      {/* Camera thumbnail */}
+      {/* Camera thumbnail — local placeholder (offline-safe) */}
       <div style={{
         position: 'relative', borderRadius: 5, overflow: 'hidden',
         border: `1px solid ${C.borderBright}`, height: 60, width: 107, flexShrink: 0,
         background: '#040A14',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
-        <img
-          src="https://images.unsplash.com/photo-1766934697091-9c2c803b05d6?w=214&h=120&fit=crop&auto=format"
-          alt="Mine tunnel camera feed — Level 7B"
-          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-        />
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+        }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" stroke={C.ghost} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            <circle cx="12" cy="13" r="4" stroke={C.ghost} strokeWidth="1.5" />
+          </svg>
+          <span style={{
+            fontFamily: "'JetBrains Mono', monospace", fontSize: 7,
+            color: C.ghost, letterSpacing: '0.1em',
+          }}>
+            NO FEED
+          </span>
+        </div>
         <div style={{
           position: 'absolute', bottom: 0, left: 0, right: 0,
           padding: '2px 5px',
@@ -716,7 +731,7 @@ function BottomBar({ camTimestamp, onSendAlert }: BottomBarProps) {
           display: 'flex', justifyContent: 'space-between',
         }}>
           <span>{camTimestamp}</span>
-          <span style={{ color: '#2ECC71' }}>● CAM-04</span>
+          <span style={{ color: C.ghost }}>○ CAM-04</span>
         </div>
       </div>
 
@@ -791,34 +806,6 @@ function BottomBar({ camTimestamp, onSendAlert }: BottomBarProps) {
 
 // ─── App ─────────────────────────────────────────────────────────────────────
 
-const EVENT_POOL: Record<SystemState, { msg: string; level: LogEntry['level'] }[]> = {
-  NORMAL: [
-    { msg: 'Vibration reading nominal — 0.021G avg', level: 'info' },
-    { msg: 'Pressure stable at 1013.5 mbar', level: 'info' },
-    { msg: 'Temperature consistent — 21.3°C', level: 'info' },
-    { msg: 'Acoustic baseline confirmed — 51 dB', level: 'info' },
-    { msg: 'Strain gauge within tolerance (891 kgF)', level: 'info' },
-    { msg: 'Camera capture archived — no anomaly detected', level: 'info' },
-    { msg: 'GSM link heartbeat acknowledged', level: 'info' },
-  ],
-  WATCH: [
-    { msg: 'Vibration anomaly detected — threshold approaching', level: 'warn' },
-    { msg: 'Acoustic spike: 72 dB — monitoring closely', level: 'warn' },
-    { msg: 'Strain trending upward — supervisor notified', level: 'warn' },
-    { msg: 'Escalating to WATCH state', level: 'warn' },
-    { msg: 'Secondary sensor confirming elevated readings', level: 'warn' },
-    { msg: 'Alert notification dispatched to site supervisor', level: 'warn' },
-  ],
-  CRITICAL: [
-    { msg: 'CRITICAL: Vibration at 0.195G — advisory issued', level: 'critical' },
-    { msg: 'Structural strain at 988 kgF — fault suspected', level: 'critical' },
-    { msg: 'GSM alert dispatched to on-call response team', level: 'critical' },
-    { msg: 'Emergency protocol activated — Level 7B', level: 'critical' },
-    { msg: 'Camera repositioned for zone surveillance', level: 'critical' },
-    { msg: 'Awaiting acknowledgement from surface control', level: 'critical' },
-  ],
-}
-
 function createLogFromTelemetry(data: Telemetry, id: number): LogEntry {
   const time = tsFor(new Date(data.timestamp))
 
@@ -857,9 +844,31 @@ const [envData, setEnvData] = useState<DataPoint[]>([])
 const [strData, setStrData] = useState<DataPoint[]>([])
 const [logEntries, setLogEntries] = useState<LogEntry[]>([])
   const [camTs, setCamTs] = useState(nowStr)
+  const [manualOverride, setManualOverride] = useState(false)
+  const [lastUpdateAgo, setLastUpdateAgo] = useState<number | null>(null)
 
   const stateRef = useRef<SystemState>('NORMAL')
   useEffect(() => { stateRef.current = systemState }, [systemState])
+
+  const manualOverrideRef = useRef(false)
+  useEffect(() => { manualOverrideRef.current = manualOverride }, [manualOverride])
+
+  const lastFetchRef = useRef<number>(0)
+
+  // Staleness check — every 1s, check if last successful fetch was >5s ago
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (lastFetchRef.current === 0) return
+      const elapsed = Math.floor((Date.now() - lastFetchRef.current) / 1000)
+      if (elapsed > 5) {
+        setConnected(false)
+        setLastUpdateAgo(elapsed)
+      } else {
+        setLastUpdateAgo(null)
+      }
+    }, 1000)
+    return () => clearInterval(t)
+  }, [])
 
   const addLog = useCallback((msg: string, level: LogEntry['level']) => {
     setLogEntries((prev) => [...prev.slice(-149), { id: ++_logId, ts: nowStr(), msg, level }])
@@ -879,8 +888,14 @@ useEffect(() => {
 
       const t = tsFor(new Date(data.timestamp))
 
+      lastFetchRef.current = Date.now()
       setConnected(true)
-      setSystemState(data.status)
+      setLastUpdateAgo(null)
+
+      // Only update system state from API if manual override is not active
+      if (!manualOverrideRef.current) {
+        setSystemState(data.status)
+      }
 
       setVibData((prev) => [
         ...prev.slice(-(MAX_PTS - 1)),
@@ -995,7 +1010,7 @@ useEffect(() => {
       display: 'flex', flexDirection: 'column', height: '100vh',
       background: C.bg, overflow: 'hidden',
     }}>
-      <TopBar state={systemState} nodeId="MN-04" connected={connected} />
+      <TopBar state={systemState} nodeId="MN-04" connected={connected} lastUpdateAgo={lastUpdateAgo} manualOverride={manualOverride} />
 
       <main style={{
         flex: 1, display: 'grid',
@@ -1004,7 +1019,7 @@ useEffect(() => {
         minHeight: 0,
       }}>
         {/* Left — Status card */}
-        <StatusCard state={systemState} onStateChange={setSystemState} />
+        <StatusCard state={systemState} onStateChange={setSystemState} manualOverride={manualOverride} onSetOverride={setManualOverride} />
 
         {/* Center — 2×2 chart grid */}
         <div style={{
