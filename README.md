@@ -1,117 +1,196 @@
-# Sentinel — Mine Subsidence Early-Warning Dashboard
+# Sentinel
 
-Real-time industrial monitoring dashboard for detecting mine subsidence through multi-sensor data analysis. Built for the Smart India Hackathon (SIH).
+**Real-time mine subsidence early-warning system** — a multi-sensor monitoring dashboard built for underground coal and mineral mines. Designed to detect precursors to ground collapse through continuous analysis of vibration, acoustic, pressure, temperature, and structural strain data, and to trigger GSM-based emergency alerts when thresholds are breached.
 
-## Architecture
+Built for **Smart India Hackathon 2024** under the problem statement for intelligent mine safety infrastructure.
+
+---
+
+## The Problem
+
+Mine subsidence — the gradual or sudden sinking of ground above an underground excavation — is one of the leading causes of catastrophic mining disasters globally. In India, where a significant portion of mining activity involves aging underground infrastructure, real-time anomaly detection is largely absent at the site level. Operators rely on periodic manual inspections, which create dangerous blind spots between readings.
+
+**Sentinel** addresses this by deploying a low-cost, offline-capable sensor node directly at the mining site that continuously monitors geological precursors and surfaces the data to operators in a readable, actionable dashboard — with no dependence on cloud connectivity.
+
+---
+
+## System Architecture
 
 ```
-┌─────────────────────┐
-│   Sensor Pipeline   │
-│  (Mock / Jetson)    │
-└──────────┬──────────┘
-           │ writes every 2s
-           ▼
-┌─────────────────────┐
-│   sensor_log.csv    │
-└──────────┬──────────┘
-           │ reads
-           ▼
-┌─────────────────────┐
-│   Express Server    │
-│   localhost:5000     │
-│                     │
-│ GET  /api/telemetry │
-│ GET  /api/events    │
-│ POST /api/test-alert│
-└──────────┬──────────┘
-           │ REST API
-           ▼
-┌─────────────────────┐
-│   React Dashboard   │
-│   localhost:8443    │
-│                     │
-│ Charts · Status ·   │
-│ Event Log · Alerts  │
-└─────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                        SITE NODE (MN-04)                         │
+│                                                                  │
+│   ┌─────────────────┐      ┌──────────────────┐                 │
+│   │  Sensor Array   │      │  Jetson Nano      │                 │
+│   │                 │─────▶│  (Edge Compute)   │                 │
+│   │  · MPU-6050     │ I²C  │                   │                 │
+│   │  · Sound sensor │      │  · Reads sensors  │                 │
+│   │  · BMP180       │      │  · Runs anomaly   │                 │
+│   │  · Thermistor   │      │    detection      │                 │
+│   │  · Load cell    │      │  · Writes CSV     │                 │
+│   └─────────────────┘      └────────┬─────────┘                 │
+│                                      │ sensor_log.csv             │
+│                             ┌────────▼─────────┐                 │
+│                             │  Express API     │                 │
+│                             │  :5000           │                 │
+│                             │                  │                 │
+│                             │  /api/telemetry  │                 │
+│                             │  /api/events     │                 │
+│                             │  /api/test-alert │                 │
+│                             └────────┬─────────┘                 │
+│                                      │ REST (localhost)           │
+│                             ┌────────▼─────────┐                 │
+│                             │  React Dashboard │                 │
+│                             │  :8443           │                 │
+│                             └──────────────────┘                 │
+│                                                                  │
+│                    ┌──────────────────┐                          │
+│                    │  SIM900A Module  │ ◀── triggered on CRITICAL │
+│                    │  (GSM Alert)     │                          │
+│                    └──────────────────┘                          │
+└──────────────────────────────────────────────────────────────────┘
 ```
+
+The entire stack runs **locally on the Jetson Nano** — there is no cloud dependency, no internet requirement, and no external API calls. The system is designed to remain operational in environments with zero connectivity.
+
+---
+
+## Features
+
+| Feature | Description |
+|---|---|
+| **Live Sensor Charts** | 4 real-time scrolling charts — ground vibration (G), acoustic signature (dB), environmental trend (mbar · °C), structural strain (kgF) — updated every 2 seconds |
+| **3-State Alert System** | NORMAL / WATCH / CRITICAL state machine driven by the sensor anomaly model, with distinct visual and glow indicators per state |
+| **Connection Loss Detection** | Automatically detects stale data (>5s without update) and shows an "Offline · Xs ago" indicator in the top bar |
+| **Manual Override Mode** | Operators can force-lock the dashboard to a specific state for demo or inspection purposes; API updates are suppressed until "Resume Live" is clicked |
+| **Event Log** | Scrolling timestamped log of sensor state transitions, sourced from the backend CSV history |
+| **GSM Test Alert** | One-click button to trigger an SMS dispatch to the on-call response team (mock in current build; wired to SIM900A AT commands in hardware deployment) |
+| **Fully Offline** | No external CDN, no cloud API, no Unsplash or remote image dependencies — runs air-gapped |
+
+---
 
 ## Quick Start
 
-### 1. Start the mock sensor (Terminal 1)
+> **Prerequisites:** Node.js ≥ 18, pnpm (or npm)
+
+### 1 — Start the mock sensor pipeline
 ```bash
 cd backend
 node mock_data/generate_mock.js
 ```
+Writes a new sensor row to `sensor_log.csv` every 2 seconds, simulating the Jetson Nano data pipeline.
 
-### 2. Start the backend API (Terminal 2)
+### 2 — Start the backend API
 ```bash
 cd backend
 node server.js
+# → Backend running on http://localhost:5000
 ```
 
-### 3. Start the frontend (Terminal 3)
+### 3 — Start the dashboard
 ```bash
 cd frontend
-pnpm install   # or npm install
-pnpm dev       # or npm run dev
+pnpm install
+pnpm dev
+# → Dashboard at http://localhost:8443
 ```
 
-Open **http://localhost:8443** in your browser.
+---
 
-## CSV Data Contract
+## Repository Structure
 
-The backend reads sensor data from a CSV file. The column format must be:
+```
+sentinel-dashboard/
+├── backend/
+│   ├── server.js               # Express API server
+│   └── mock_data/
+│       ├── generate_mock.js    # Simulated sensor data writer
+│       └── sensor_log.csv      # Live data store (gitignored)
+├── frontend/
+│   ├── src/
+│   │   ├── App.jsx             # Full dashboard UI (React)
+│   │   ├── main.jsx            # Entry point
+│   │   └── index.css           # Global styles + animations
+│   ├── index.html
+│   ├── vite.config.js
+│   └── package.json
+└── README.md
+```
+
+---
+
+## API Reference
+
+| Method | Endpoint | Response |
+|---|---|---|
+| `GET` | `/api/telemetry` | Latest sensor reading as JSON object |
+| `GET` | `/api/events` | Last 20 sensor readings as JSON array (newest first) |
+| `POST` | `/api/test-alert` | Triggers GSM alert; returns `{ success: true, message: "..." }` |
+
+### Sensor Data Schema
+
+The backend reads from a single CSV file. This is the canonical data contract between the sensor firmware and the dashboard — both sides must conform to this format exactly.
 
 ```
 timestamp,vibration,acoustic,pressure,temperature,strain,status
 ```
 
-| Column      | Type    | Unit    | Example                      |
-|-------------|---------|---------|------------------------------|
-| timestamp   | ISO8601 | —       | 2026-09-16T05:30:01.123Z     |
-| vibration   | float   | G-force | 0.1234                       |
-| acoustic    | float   | dB      | 54.2                         |
-| pressure    | float   | mbar    | 1015.3                       |
-| temperature | float   | °C      | 21.4                         |
-| strain      | float   | kgF     | 867.2                        |
-| status      | string  | —       | NORMAL \| WATCH \| CRITICAL  |
+| Field | Type | Unit | Notes |
+|---|---|---|---|
+| `timestamp` | ISO 8601 string | — | UTC, millisecond precision |
+| `vibration` | float | G-force | Peak ground acceleration |
+| `acoustic` | float | dB SPL | Ambient acoustic level |
+| `pressure` | float | mbar | Barometric pressure |
+| `temperature` | float | °C | Ambient temperature |
+| `strain` | float | kgF | Load cell reading |
+| `status` | string | — | `NORMAL` · `WATCH` · `CRITICAL` — output of the anomaly model |
 
-**Status values** must be uppercase and come from the AI/ML anomaly detection model's state machine — not raw sensor thresholds.
+The `status` field is the output of the ML anomaly detection stage running on the Jetson, **not** a raw threshold comparison. Raw sensor values trigger a WATCH or CRITICAL state only after the model confirms a multi-sensor anomaly pattern — reducing false positives from single-sensor noise.
 
-## Swapping to Real Sensor Data
+---
 
-When the Jetson Nano sensor pipeline is ready:
+## Hardware Integration (Jetson Nano)
 
-1. Your script writes CSV rows to `backend/mock_data/sensor_log.csv` (or a new path)
-2. If using a different path, update `csvPath` in `backend/server.js` (one line)
-3. Stop `generate_mock.js` — it's no longer needed
-4. Everything else (backend API, frontend dashboard) works unchanged
+When the physical sensor pipeline is ready, the swap is a single-line change:
 
-## API Endpoints
+1. The sensor acquisition script writes rows to `backend/mock_data/sensor_log.csv` using the schema above
+2. To use a different file path, update `csvPath` in [`backend/server.js`](backend/server.js) (line 12)
+3. Stop `generate_mock.js` — it is no longer needed
+4. The API server, dashboard, and alert system continue working with no other changes
 
-| Method | Path              | Description                        |
-|--------|-------------------|------------------------------------|
-| GET    | /api/telemetry    | Latest single sensor row (JSON)    |
-| GET    | /api/events       | Last 20 sensor rows (JSON array)   |
-| POST   | /api/test-alert   | Trigger test GSM alert (mock)      |
+### Hardware Components
+
+| Component | Purpose |
+|---|---|
+| NVIDIA Jetson Nano | Edge compute — sensor acquisition, anomaly detection, API server |
+| MPU-6050 | 3-axis accelerometer (ground vibration) |
+| MEMS microphone | Acoustic signature monitoring |
+| BMP180 | Barometric pressure + temperature |
+| HX711 + load cell | Structural strain measurement |
+| SIM900A GSM module | SMS emergency alerts |
+
+---
 
 ## Tech Stack
 
-| Layer    | Technology                                    |
-|----------|-----------------------------------------------|
-| Frontend | React 19 · TypeScript · Vite 8 · Recharts 3  |
-| Backend  | Node.js · Express 5 · CORS                   |
-| Data     | CSV (sensor log)                              |
-| Fonts    | Barlow Condensed · IBM Plex Sans · JetBrains Mono (Google Fonts CDN) |
+| Layer | Technology |
+|---|---|
+| Frontend | React 19 · Vite 8 · Recharts 3 · Tailwind CSS 4 |
+| Backend | Node.js · Express 5 |
+| Data transport | REST over localhost (LAN-only, no external network) |
+| Data storage | Append-only CSV log |
+| Edge hardware | NVIDIA Jetson Nano |
 
-## Pre-Deployment Tasks (Jetson Nano)
+---
 
-Before deploying to an offline Jetson Nano:
+## Pre-Deployment Checklist (Jetson Nano)
 
-- [ ] **Self-host fonts**: Download Barlow Condensed, IBM Plex Sans, and JetBrains Mono font files and serve them locally instead of from Google Fonts CDN. Update `index.css` `@import` to point to local files.
-- [ ] **Wire real GSM**: Connect `POST /api/test-alert` to the SIM900A AT command script (`send_sms.py`) via `child_process`.
-- [ ] **Camera feed**: Replace the camera placeholder with actual Jetson camera capture endpoint.
-- [ ] **Compute uptime/risk**: Wire the static "7d 14h" uptime and "LOW — 0.12" risk index to real computed values.
+- [ ] **Self-host fonts** — download Barlow Condensed, IBM Plex Sans, and JetBrains Mono locally; update the `@import` in `frontend/src/index.css` to point to local paths
+- [ ] **Wire GSM alert** — connect `POST /api/test-alert` in `server.js` to the SIM900A AT command script via Node's `child_process`
+- [ ] **Camera feed** — replace the camera placeholder in `BottomBar` with a live frame from the Jetson camera capture endpoint
+- [ ] **Dynamic uptime and risk index** — wire the static `7d 14h` uptime and `LOW — 0.12` risk index values to computed real-time equivalents
+
+---
 
 ## License
 
