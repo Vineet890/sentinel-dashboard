@@ -4,31 +4,9 @@ import {
   Tooltip, ResponsiveContainer,
 } from 'recharts'
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-export type SystemState = 'NORMAL' | 'WATCH' | 'CRITICAL'
-
-export interface DataPoint { t: string; v: number; v2?: number }
-
-export interface LogEntry {
-  id: number
-  ts: string
-  msg: string
-  level: 'info' | 'warn' | 'critical'
-}
-export interface Telemetry {
-  timestamp: string
-  vibration: string
-  acoustic: string
-  pressure: string
-  temperature: string
-  strain: string
-  status: SystemState
-}
-
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const STATE_COLOR: Record<SystemState, string> = {
+const STATE_COLOR = {
   NORMAL: '#2ECC71',
   WATCH: '#F1C40F',
   CRITICAL: '#E74C3C',
@@ -55,18 +33,14 @@ let _logId = 10
 function nowStr() {
   return new Date().toLocaleTimeString('en-GB', { hour12: false })
 }
-function tsFor(d: Date) {
+function tsFor(d) {
   return d.toLocaleTimeString('en-GB', { hour12: false })
 }
 
 
 // ─── Chart tooltip ────────────────────────────────────────────────────────────
 
-function ChartTooltip({ active, payload, label }: {
-  active?: boolean
-  payload?: { color: string; name: string; value: number }[]
-  label?: string
-}) {
+function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
   return (
     <div style={{
@@ -86,26 +60,7 @@ function ChartTooltip({ active, payload, label }: {
 
 // ─── Chart card ───────────────────────────────────────────────────────────────
 
-interface ChartLine {
-  key: 'v' | 'v2'
-  color: string
-  name: string
-  yAxisId?: 'left' | 'right'
-}
-
-interface ChartCardProps {
-  title: string
-  data: DataPoint[]
-  lines: ChartLine[]
-  unit: string
-  yDomain?: [number | 'auto', number | 'auto']
-  y2Domain?: [number | 'auto', number | 'auto']
-  latestValue?: string
-  yAxisWidth?: number
-  y2AxisWidth?: number
-}
-
-function ChartCard({ title, data, lines, unit, yDomain, y2Domain, latestValue, yAxisWidth, y2AxisWidth }: ChartCardProps) {
+function ChartCard({ title, data, lines, unit, yDomain, y2Domain, latestValue, yAxisWidth, y2AxisWidth }) {
   const dual = !!y2Domain
   const latest = data[data.length - 1]
   const hasData = data.length > 0
@@ -227,13 +182,13 @@ function ChartCard({ title, data, lines, unit, yDomain, y2Domain, latestValue, y
 
 // ─── Status card ──────────────────────────────────────────────────────────────
 
-const STATE_DESC: Record<SystemState, string> = {
+const STATE_DESC = {
   NORMAL: 'All parameters within operational thresholds. No intervention required.',
   WATCH: 'One or more sensors approaching alert threshold. Heightened monitoring active.',
   CRITICAL: 'Threshold exceeded. Immediate inspection and escalation required.',
 }
 
-const SENSOR_ROWS: { label: string; ok: (s: SystemState) => boolean }[] = [
+const SENSOR_ROWS = [
   { label: 'ACCELEROMETER', ok: (s) => s === 'NORMAL' },
   { label: 'ACOUSTIC MIC', ok: (s) => s === 'NORMAL' },
   { label: 'BAROMETRIC', ok: (s) => s !== 'CRITICAL' },
@@ -242,14 +197,7 @@ const SENSOR_ROWS: { label: string; ok: (s: SystemState) => boolean }[] = [
   { label: 'CAMERA LINK', ok: () => true },
 ]
 
-interface StatusCardProps {
-  state: SystemState
-  onStateChange: (s: SystemState) => void
-  manualOverride: boolean
-  onSetOverride: (active: boolean) => void
-}
-
-function StatusCard({ state, onStateChange, manualOverride, onSetOverride }: StatusCardProps) {
+function StatusCard({ state, onStateChange, manualOverride, onSetOverride }) {
   const color = STATE_COLOR[state]
   const glowClass = state === 'WATCH' ? 'pulse-watch' : state === 'CRITICAL' ? 'pulse-critical' : ''
 
@@ -388,7 +336,7 @@ function StatusCard({ state, onStateChange, manualOverride, onSetOverride }: Sta
           </span>
         </div>
         <div style={{ display: 'flex', gap: 5 }}>
-          {(['NORMAL', 'WATCH', 'CRITICAL'] as SystemState[]).map((s) => (
+          {['NORMAL', 'WATCH', 'CRITICAL'].map((s) => (
             <button
               key={s}
               onClick={() => {
@@ -438,18 +386,14 @@ function StatusCard({ state, onStateChange, manualOverride, onSetOverride }: Sta
 
 // ─── Event log ────────────────────────────────────────────────────────────────
 
-const LEVEL_COLOR: Record<LogEntry['level'], string> = {
+const LEVEL_COLOR = {
   info: C.dim,
   warn: '#F1C40F',
   critical: '#E74C3C',
 }
 
-interface EventLogProps {
-  entries: LogEntry[]
-}
-
-function EventLog({ entries }: EventLogProps) {
-  const bottomRef = useRef<HTMLDivElement>(null)
+function EventLog({ entries }) {
+  const bottomRef = useRef(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -537,15 +481,7 @@ function EventLog({ entries }: EventLogProps) {
 
 // ─── Top bar ─────────────────────────────────────────────────────────────────
 
-interface TopBarProps {
-  state: SystemState
-  nodeId: string
-  connected: boolean
-  lastUpdateAgo: number | null
-  manualOverride: boolean
-}
-
-function TopBar({ state, nodeId, connected, lastUpdateAgo, manualOverride }: TopBarProps) {
+function TopBar({ state, nodeId, connected, lastUpdateAgo, manualOverride }) {
   const [clock, setClock] = useState(nowStr())
 
   useEffect(() => {
@@ -666,12 +602,7 @@ function TopBar({ state, nodeId, connected, lastUpdateAgo, manualOverride }: Top
 
 // ─── Bottom bar ───────────────────────────────────────────────────────────────
 
-interface BottomBarProps {
-  camTimestamp: string
-  onSendAlert: () => void
-}
-
-function BottomBar({ camTimestamp, onSendAlert }: BottomBarProps) {
+function BottomBar({ camTimestamp, onSendAlert }) {
   const [alertSent, setAlertSent] = useState(false)
 
   const handleAlert = () => {
@@ -806,7 +737,7 @@ function BottomBar({ camTimestamp, onSendAlert }: BottomBarProps) {
 
 // ─── App ─────────────────────────────────────────────────────────────────────
 
-function createLogFromTelemetry(data: Telemetry, id: number): LogEntry {
+function createLogFromTelemetry(data, id) {
   const time = tsFor(new Date(data.timestamp))
 
   if (data.status === 'CRITICAL') {
@@ -836,24 +767,24 @@ function createLogFromTelemetry(data: Telemetry, id: number): LogEntry {
 }
 
 export default function App() {
- const [systemState, setSystemState] = useState<SystemState>('NORMAL')
-const [connected, setConnected] = useState(false)
-const [vibData, setVibData] = useState<DataPoint[]>([])
-const [acoData, setAcoData] = useState<DataPoint[]>([])
-const [envData, setEnvData] = useState<DataPoint[]>([])
-const [strData, setStrData] = useState<DataPoint[]>([])
-const [logEntries, setLogEntries] = useState<LogEntry[]>([])
+  const [systemState, setSystemState] = useState('NORMAL')
+  const [connected, setConnected] = useState(false)
+  const [vibData, setVibData] = useState([])
+  const [acoData, setAcoData] = useState([])
+  const [envData, setEnvData] = useState([])
+  const [strData, setStrData] = useState([])
+  const [logEntries, setLogEntries] = useState([])
   const [camTs, setCamTs] = useState(nowStr)
   const [manualOverride, setManualOverride] = useState(false)
-  const [lastUpdateAgo, setLastUpdateAgo] = useState<number | null>(null)
+  const [lastUpdateAgo, setLastUpdateAgo] = useState(null)
 
-  const stateRef = useRef<SystemState>('NORMAL')
+  const stateRef = useRef('NORMAL')
   useEffect(() => { stateRef.current = systemState }, [systemState])
 
   const manualOverrideRef = useRef(false)
   useEffect(() => { manualOverrideRef.current = manualOverride }, [manualOverride])
 
-  const lastFetchRef = useRef<number>(0)
+  const lastFetchRef = useRef(0)
 
   // Staleness check — every 1s, check if last successful fetch was >5s ago
   useEffect(() => {
@@ -870,68 +801,68 @@ const [logEntries, setLogEntries] = useState<LogEntry[]>([])
     return () => clearInterval(t)
   }, [])
 
-  const addLog = useCallback((msg: string, level: LogEntry['level']) => {
+  const addLog = useCallback((msg, level) => {
     setLogEntries((prev) => [...prev.slice(-149), { id: ++_logId, ts: nowStr(), msg, level }])
   }, [])
 
   // Fetch live telemetry from backend
-useEffect(() => {
-  const fetchTelemetry = async () => {
-    try {
-      const response = await fetch('http://localhost:5000/api/telemetry')
+  useEffect(() => {
+    const fetchTelemetry = async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/telemetry')
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch telemetry')
+        if (!response.ok) {
+          throw new Error('Failed to fetch telemetry')
+        }
+
+        const data = await response.json()
+
+        const t = tsFor(new Date(data.timestamp))
+
+        lastFetchRef.current = Date.now()
+        setConnected(true)
+        setLastUpdateAgo(null)
+
+        // Only update system state from API if manual override is not active
+        if (!manualOverrideRef.current) {
+          setSystemState(data.status)
+        }
+
+        setVibData((prev) => [
+          ...prev.slice(-(MAX_PTS - 1)),
+          { t, v: Number(data.vibration) },
+        ])
+
+        setAcoData((prev) => [
+          ...prev.slice(-(MAX_PTS - 1)),
+          { t, v: Number(data.acoustic) },
+        ])
+
+        setEnvData((prev) => [
+          ...prev.slice(-(MAX_PTS - 1)),
+          {
+            t,
+            v: Number(data.pressure),
+            v2: Number(data.temperature),
+          },
+        ])
+
+        setStrData((prev) => [
+          ...prev.slice(-(MAX_PTS - 1)),
+          { t, v: Number(data.strain) },
+        ])
+      } catch (error) {
+        console.error('Telemetry fetch failed:', error)
+        setConnected(false)
       }
-
-      const data: Telemetry = await response.json()
-
-      const t = tsFor(new Date(data.timestamp))
-
-      lastFetchRef.current = Date.now()
-      setConnected(true)
-      setLastUpdateAgo(null)
-
-      // Only update system state from API if manual override is not active
-      if (!manualOverrideRef.current) {
-        setSystemState(data.status)
-      }
-
-      setVibData((prev) => [
-        ...prev.slice(-(MAX_PTS - 1)),
-        { t, v: Number(data.vibration) },
-      ])
-
-      setAcoData((prev) => [
-        ...prev.slice(-(MAX_PTS - 1)),
-        { t, v: Number(data.acoustic) },
-      ])
-
-      setEnvData((prev) => [
-        ...prev.slice(-(MAX_PTS - 1)),
-        {
-          t,
-          v: Number(data.pressure),
-          v2: Number(data.temperature),
-        },
-      ])
-
-      setStrData((prev) => [
-        ...prev.slice(-(MAX_PTS - 1)),
-        { t, v: Number(data.strain) },
-      ])
-    } catch (error) {
-      console.error('Telemetry fetch failed:', error)
-      setConnected(false)
     }
-  }
 
-  fetchTelemetry()
+    fetchTelemetry()
 
-  const interval = setInterval(fetchTelemetry, 2000)
+    const interval = setInterval(fetchTelemetry, 2000)
 
-  return () => clearInterval(interval)
-}, [])
+    return () => clearInterval(interval)
+  }, [])
 
   // Camera timestamp — every 30 s
   useEffect(() => {
@@ -939,10 +870,8 @@ useEffect(() => {
     return () => clearInterval(t)
   }, [])
 
-  
-
   // Log state transitions
-  const prevStateRef = useRef<SystemState>(systemState)
+  const prevStateRef = useRef(systemState)
   useEffect(() => {
     if (prevStateRef.current !== systemState) {
       addLog(
@@ -954,50 +883,50 @@ useEffect(() => {
   }, [systemState, addLog])
 
   // Fetch event history from backend
-useEffect(() => {
-  const fetchEvents = async () => {
-    try {
-      const response = await fetch('http://localhost:5000/api/events')
+  useEffect(() => {
+    const fetchEvents = async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/events')
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch events')
+        if (!response.ok) {
+          throw new Error('Failed to fetch events')
+        }
+
+        const data = await response.json()
+
+        const logs = data.map((item, index) =>
+          createLogFromTelemetry(item, index + 1)
+        )
+
+        setLogEntries(logs)
+      } catch (error) {
+        console.error('Events fetch failed:', error)
       }
-
-      const data: Telemetry[] = await response.json()
-
-      const logs = data.map((item, index) =>
-        createLogFromTelemetry(item, index + 1)
-      )
-
-      setLogEntries(logs)
-    } catch (error) {
-      console.error('Events fetch failed:', error)
     }
-  }
 
-  fetchEvents()
+    fetchEvents()
 
-  const interval = setInterval(fetchEvents, 2000)
+    const interval = setInterval(fetchEvents, 2000)
 
-  return () => clearInterval(interval)
-}, [])
+    return () => clearInterval(interval)
+  }, [])
 
   const handleSendAlert = useCallback(async () => {
-  try {
-    const response = await fetch(
-      'http://localhost:5000/api/test-alert',
-      {
-        method: 'POST',
-      }
-    );
+    try {
+      const response = await fetch(
+        'http://localhost:5000/api/test-alert',
+        {
+          method: 'POST',
+        }
+      )
 
-    const result = await response.json();
+      const result = await response.json()
 
-    addLog(result.message, 'warn');
-  } catch (error) {
-    addLog('Alert dispatch failed', 'critical');
-  }
-}, [addLog]);
+      addLog(result.message, 'warn')
+    } catch (error) {
+      addLog('Alert dispatch failed', 'critical')
+    }
+  }, [addLog])
 
   // Latest values for chart headers
   const lastVib = vibData[vibData.length - 1]?.v
