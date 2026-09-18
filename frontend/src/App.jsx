@@ -600,10 +600,10 @@ function TopBar({ state, nodeId, connected, lastUpdateAgo, manualOverride }) {
   )
 }
 
-// ─── Bottom bar ───────────────────────────────────────────────────────────────
-
-function BottomBar({ camTimestamp, onSendAlert }) {
+function BottomBar({ camTimestamp, onSendAlert, riskScore, riskLabel, uptime, camConnected }) {
   const [alertSent, setAlertSent] = useState(false)
+  const [camError, setCamError] = useState(false)
+  const [camKey, setCamKey] = useState(0)
 
   const handleAlert = () => {
     onSendAlert()
@@ -611,12 +611,25 @@ function BottomBar({ camTimestamp, onSendAlert }) {
     setTimeout(() => setAlertSent(false), 3000)
   }
 
+  // Refresh camera image every 10 seconds
+  useEffect(() => {
+    const t = setInterval(() => {
+      setCamError(false)
+      setCamKey((k) => k + 1)
+    }, 10000)
+    return () => clearInterval(t)
+  }, [])
+
+  const riskVal = parseFloat(riskScore) || 0
+  const riskColor = riskVal < 0.3 ? '#2ECC71' : riskVal < 0.6 ? '#F1C40F' : '#E74C3C'
+  const filledBars = Math.max(1, Math.min(10, Math.round(riskVal * 10)))
+
   const META = [
     { label: 'SITE', value: 'Alpha-3' },
     { label: 'DEPTH', value: '312 m' },
     { label: 'ZONE', value: 'Level-7B' },
     { label: 'OPERATOR', value: 'R. Kowalski' },
-    { label: 'UPTIME', value: '7d 14h' },
+    { label: 'UPTIME', value: uptime || '—' },
   ]
 
   return (
@@ -633,27 +646,37 @@ function BottomBar({ camTimestamp, onSendAlert }) {
         Latest Capture
       </span>
 
-      {/* Camera thumbnail — local placeholder (offline-safe) */}
+      {/* Camera thumbnail — live from backend, fallback to SVG placeholder */}
       <div style={{
         position: 'relative', borderRadius: 5, overflow: 'hidden',
         border: `1px solid ${C.borderBright}`, height: 60, width: 107, flexShrink: 0,
         background: '#040A14',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
-        <div style={{
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
-        }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-            <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" stroke={C.ghost} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            <circle cx="12" cy="13" r="4" stroke={C.ghost} strokeWidth="1.5" />
-          </svg>
-          <span style={{
-            fontFamily: "'JetBrains Mono', monospace", fontSize: 7,
-            color: C.ghost, letterSpacing: '0.1em',
+        {!camError ? (
+          <img
+            key={camKey}
+            src={`http://localhost:5000/api/camera?t=${camKey}`}
+            alt="Site camera"
+            onError={() => setCamError(true)}
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          />
+        ) : (
+          <div style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
           }}>
-            NO FEED
-          </span>
-        </div>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" stroke={C.ghost} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              <circle cx="12" cy="13" r="4" stroke={C.ghost} strokeWidth="1.5" />
+            </svg>
+            <span style={{
+              fontFamily: "'JetBrains Mono', monospace", fontSize: 7,
+              color: C.ghost, letterSpacing: '0.1em',
+            }}>
+              NO FEED
+            </span>
+          </div>
+        )}
         <div style={{
           position: 'absolute', bottom: 0, left: 0, right: 0,
           padding: '2px 5px',
@@ -662,7 +685,9 @@ function BottomBar({ camTimestamp, onSendAlert }) {
           display: 'flex', justifyContent: 'space-between',
         }}>
           <span>{camTimestamp}</span>
-          <span style={{ color: C.ghost }}>○ CAM-04</span>
+          <span style={{ color: camConnected ? '#2ECC71' : C.ghost }}>
+            {camConnected ? '●' : '○'} CAM-04
+          </span>
         </div>
       </div>
 
@@ -687,7 +712,7 @@ function BottomBar({ camTimestamp, onSendAlert }) {
 
       <div style={{ flex: 1 }} />
 
-      {/* Subsidence risk meter */}
+      {/* Subsidence risk meter — dynamic from backend */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
         <span style={{
           fontFamily: "'Barlow Condensed', sans-serif", fontSize: 8, fontWeight: 600,
@@ -696,16 +721,20 @@ function BottomBar({ camTimestamp, onSendAlert }) {
           Risk Index
         </span>
         <div style={{ display: 'flex', gap: 2 }}>
-          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
-            <div key={n} style={{
-              width: 6, height: 16, borderRadius: 2,
-              background: n <= 2 ? '#2ECC71' : n <= 6 ? '#1A3A26' : n <= 8 ? '#3A2E0A' : '#3A1010',
-              border: `1px solid ${n <= 2 ? '#2ECC7140' : C.border}`,
-            }} />
-          ))}
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => {
+            const lit = n <= filledBars
+            const barColor = n <= 3 ? '#2ECC71' : n <= 6 ? '#F1C40F' : '#E74C3C'
+            return (
+              <div key={n} style={{
+                width: 6, height: 16, borderRadius: 2,
+                background: lit ? barColor : (n <= 3 ? '#1A3A26' : n <= 6 ? '#3A2E0A' : '#3A1010'),
+                border: `1px solid ${lit ? barColor + '40' : C.border}`,
+              }} />
+            )
+          })}
         </div>
-        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: '#2ECC71' }}>
-          LOW — 0.12
+        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: riskColor }}>
+          {riskLabel || 'LOW'} — {riskScore || '0.00'}
         </span>
       </div>
 
@@ -777,6 +806,10 @@ export default function App() {
   const [camTs, setCamTs] = useState(nowStr)
   const [manualOverride, setManualOverride] = useState(false)
   const [lastUpdateAgo, setLastUpdateAgo] = useState(null)
+  const [riskScore, setRiskScore] = useState('0.00')
+  const [riskLabel, setRiskLabel] = useState('LOW')
+  const [uptime, setUptime] = useState('—')
+  const [camConnected, setCamConnected] = useState(false)
 
   const stateRef = useRef('NORMAL')
   useEffect(() => { stateRef.current = systemState }, [systemState])
@@ -822,6 +855,12 @@ export default function App() {
         lastFetchRef.current = Date.now()
         setConnected(true)
         setLastUpdateAgo(null)
+        setCamConnected(true)
+
+        // Update risk and uptime from backend-computed values
+        if (data.risk_score) setRiskScore(data.risk_score)
+        if (data.risk_label) setRiskLabel(data.risk_label)
+        if (data.uptime) setUptime(data.uptime)
 
         // Only update system state from API if manual override is not active
         if (!manualOverrideRef.current) {
@@ -854,6 +893,7 @@ export default function App() {
       } catch (error) {
         console.error('Telemetry fetch failed:', error)
         setConnected(false)
+        setCamConnected(false)
       }
     }
 
@@ -1001,7 +1041,14 @@ export default function App() {
         <EventLog entries={logEntries} />
       </main>
 
-      <BottomBar camTimestamp={camTs} onSendAlert={handleSendAlert} />
+      <BottomBar
+        camTimestamp={camTs}
+        onSendAlert={handleSendAlert}
+        riskScore={riskScore}
+        riskLabel={riskLabel}
+        uptime={uptime}
+        camConnected={camConnected}
+      />
     </div>
   )
 }
