@@ -215,7 +215,7 @@ const SENSOR_ROWS = [
   { label: 'CAMERA LINK', ok: () => true },
 ]
 
-function StatusCard({ state, onStateChange, manualOverride, onSetOverride }) {
+function StatusCard({ state, onStateChange, manualOverride, onSetOverride, sysStatus }) {
   const color = STATE_COLOR[state]
   const glowClass = state === 'WATCH' ? 'pulse-watch' : state === 'CRITICAL' ? 'pulse-critical' : ''
 
@@ -335,7 +335,35 @@ function StatusCard({ state, onStateChange, manualOverride, onSetOverride }) {
         {STATE_DESC[state]}
       </div>
 
-      {/* Demo state override — holds state until "Resume Live" is clicked */}
+      
+        <div style={{ width: '100%', height: 1, background: C.border }} />
+
+        {/* SIH Architecture Metrics */}
+        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 7, paddingLeft: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+             <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 11, fontWeight: 500, letterSpacing: '0.1em', color: C.dim, flex: 1 }}>EDGE COMPUTE</span>
+             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, color: '#2ECC71', marginRight: 2 }}>ACTIVE</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+             <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 11, fontWeight: 500, letterSpacing: '0.1em', color: C.dim, flex: 1 }}>CLOUD SYNC</span>
+             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, color: sysStatus?.cloudSync?.online ? '#3498DB' : '#F1C40F', marginRight: 2 }}>
+               {sysStatus?.cloudSync?.online ? 'SYNCED' : `${sysStatus?.cloudSync?.pending || 0} PENDING`}
+             </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+             <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 11, fontWeight: 500, letterSpacing: '0.1em', color: C.dim, flex: 1 }}>SENSOR NETWORK</span>
+             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, color: '#2ECC71', marginRight: 2 }}>{sysStatus?.nodes?.length || 4} NODES</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+             <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 11, fontWeight: 500, letterSpacing: '0.1em', color: C.dim, flex: 1 }}>PREDICTED ZONE</span>
+             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, color: state === 'NORMAL' ? '#2ECC71' : state === 'WATCH' ? '#F1C40F' : '#E74C3C', marginRight: 2 }}>{sysStatus?.prediction?.riskZone || 'ZONE-A'}</span>
+          </div>
+        </div>
+
+
+        <div style={{ width: '100%', height: 1, background: C.border }} />
+
+        {/* Demo state override — holds state until "Resume Live" is clicked */}
       <div style={{ width: '100%', paddingLeft: 10, paddingRight: 4 }}>
         <div style={{
           display: 'flex', alignItems: 'center', gap: 5,
@@ -995,7 +1023,8 @@ export default function App() {
   const [serverStart, setServerStart] = useState(null)
   const [uptimeStr, setUptimeStr] = useState('—')
   const [camConnected, setCamConnected] = useState(false)
-  const [mlEngine, setMlEngine] = useState('connecting') // 'online' | 'offline' | 'connecting'
+  const [mlEngine, setMlEngine] = useState('connecting')
+  const [sysStatus, setSysStatus] = useState(null)
 
   // ─── WebSocket hook (primary data source) ─────────────────────────────────
   const { wsConnected, wsFailed, latestData: wsData, dataSource } = useSentinelSocket()
@@ -1046,6 +1075,22 @@ export default function App() {
     }
     checkMl()
     const t = setInterval(checkMl, 5000)
+    return () => clearInterval(t)
+  }, [])
+
+
+  // Poll system architecture status (SIH Requirement)
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const res = await fetch('http://localhost:5000/api/system-status')
+        if (res.ok) setSysStatus(await res.json())
+      } catch (e) {
+        // silently fail if backend is down
+      }
+    }
+    fetchStatus()
+    const t = setInterval(fetchStatus, 2000)
     return () => clearInterval(t)
   }, [])
 
@@ -1230,7 +1275,13 @@ export default function App() {
         minHeight: 0,
       }}>
         {/* Left \u2014 Status card */}
-        <StatusCard state={systemState} onStateChange={setSystemState} manualOverride={manualOverride} onSetOverride={setManualOverride} />
+        <StatusCard
+            state={systemState}
+            onStateChange={setSystemState}
+            manualOverride={manualOverride}
+            onSetOverride={setManualOverride}
+            sysStatus={sysStatus}
+          />
 
         {/* Center — 2×3 grid (charts + map) */}
         <div style={{

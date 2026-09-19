@@ -67,6 +67,54 @@ async function fetchMlPrediction() {
 // Poll ML engine every 1.5s for latest prediction
 setInterval(fetchMlPrediction, 1500);
 
+// SIH 26025: Cloud Sync & Edge Buffering Simulation
+let pendingCloudSync = [];
+let totalSynced = 0;
+let isCloudOnline = true;
+const dns = require('dns').promises;
+
+setInterval(async () => {
+    try {
+        await dns.resolve('google.com');
+        isCloudOnline = true;
+        if (pendingCloudSync.length > 0) {
+            totalSynced += pendingCloudSync.length;
+            pendingCloudSync = [];
+        }
+    } catch (e) {
+        isCloudOnline = false;
+    }
+}, 5000);
+
+app.get('/api/system-status', (req, res) => {
+    try {
+        const row = readLatestRow();
+        const vib = parseFloat(row.vibration) || 0;
+        const aco = parseFloat(row.acoustic) || 0;
+        
+        res.json({
+            edgeProcessing: 'ACTIVE',
+            cloudSync: {
+                online: isCloudOnline,
+                pending: pendingCloudSync.length,
+                total: totalSynced
+            },
+            nodes: [
+                { id: 'NODE-01', distance: 0, zone: 'ZONE-A', status: 'ACTIVE' },
+                { id: 'NODE-02', distance: 25, zone: 'ZONE-A', status: 'ACTIVE' },
+                { id: 'NODE-03', distance: 50, zone: 'ZONE-B', status: 'ACTIVE' },
+                { id: 'NODE-04', distance: 75, zone: 'ZONE-B', status: 'ACTIVE' }
+            ],
+            prediction: {
+                riskZone: (row.status !== 'NORMAL') ? 'ZONE-B' : 'ZONE-A',
+                trend: (row.status === 'CRITICAL') ? 'INCREASING' : 'STABLE'
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to generate status' });
+    }
+});
+
 // ─── Telemetry ─────────────────────────────────────────────────────────────────
 
 app.get('/api/telemetry', (req, res) => {
