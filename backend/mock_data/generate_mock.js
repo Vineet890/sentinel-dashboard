@@ -1,27 +1,62 @@
 const fs = require('fs');
 const path = require('path');
 
-function randomStatus() {
-    const r = Math.random();
+// ─── Anomaly Injection Config ──────────────────────────────────────────────────
+// Every ANOMALY_INTERVAL rows, inject a coordinated multi-sensor spike so
+// the ML pipeline has interesting patterns to detect.
 
-    if (r > 0.95) return "CRITICAL";
-    if (r > 0.85) return "WATCH";
+const ANOMALY_INTERVAL = 30;   // Inject an anomaly every ~30 rows
+const ANOMALY_DURATION = 3;    // Anomaly lasts for 3 consecutive rows
 
-    return "NORMAL";
+let rowCount = 0;
+let anomalyCountdown = 0;
+
+function isAnomalyWindow() {
+    if (anomalyCountdown > 0) {
+        anomalyCountdown--;
+        return true;
+    }
+    rowCount++;
+    if (rowCount >= ANOMALY_INTERVAL && Math.random() > 0.5) {
+        rowCount = 0;
+        anomalyCountdown = ANOMALY_DURATION - 1;
+        return true;
+    }
+    return false;
 }
 
-function generateRow() {
-    const now = new Date().toISOString();
+// ─── Row generators ────────────────────────────────────────────────────────────
 
+function generateNormalRow() {
     return {
-        timestamp: now,
-        vibration: (Math.random() * 0.3).toFixed(4),
-        acoustic: (40 + Math.random() * 30).toFixed(1),
-        pressure: (1010 + Math.random() * 10).toFixed(1),
-        temperature: (18 + Math.random() * 8).toFixed(1),
-        status: randomStatus()
+        timestamp: new Date().toISOString(),
+        vibration: (0.02 + Math.random() * 0.08).toFixed(4),     // 0.02 – 0.10 G (normal baseline)
+        acoustic: (42 + Math.random() * 12).toFixed(1),           // 42 – 54 dB (quiet mine)
+        pressure: (1012 + Math.random() * 6).toFixed(1),          // 1012 – 1018 mbar
+        temperature: (20 + Math.random() * 4).toFixed(1),         // 20 – 24 °C
+        status: 'PENDING',  // ML pipeline will overwrite this
     };
 }
+
+function generateAnomalyRow() {
+    // Coordinated multi-sensor anomaly:
+    // - Vibration spikes (ground shaking precursor)
+    // - Pressure drops (cavity forming underground)
+    // - Temperature rises (friction/collapse heat)
+    // - Acoustic increases (cracking sounds)
+    const severity = 0.5 + Math.random() * 0.5;  // 0.5 – 1.0
+
+    return {
+        timestamp: new Date().toISOString(),
+        vibration: (0.15 + severity * 0.20).toFixed(4),           // 0.15 – 0.35 G (strong)
+        acoustic: (65 + severity * 30).toFixed(1),                // 65 – 95 dB (loud)
+        pressure: (1005 - severity * 8).toFixed(1),               // 997 – 1005 mbar (dropping)
+        temperature: (26 + severity * 8).toFixed(1),              // 26 – 34 °C (rising)
+        status: 'PENDING',  // ML pipeline will classify this
+    };
+}
+
+// ─── File setup ────────────────────────────────────────────────────────────────
 
 const filePath = path.join(__dirname, 'sensor_log.csv');
 const cameraPath = path.join(__dirname, 'latest_capture.jpg');
@@ -34,9 +69,6 @@ if (!fs.existsSync(filePath)) {
 }
 
 // Generate a minimal valid JPEG placeholder if no camera image exists.
-// This is a 1x1 pixel black JPEG — just enough for the dashboard to
-// show a valid image tag instead of a broken link. In production, the
-// Jetson camera pipeline overwrites this file with real frames.
 if (!fs.existsSync(cameraPath)) {
     const minimalJpeg = Buffer.from([
         0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01,
@@ -73,13 +105,26 @@ if (!fs.existsSync(cameraPath)) {
     console.log('Created placeholder camera image');
 }
 
+// ─── Main loop ─────────────────────────────────────────────────────────────────
+
+console.log('');
+console.log('  SENTINEL — Mock Sensor Data Generator');
+console.log('  ─────────────────────────────────────');
+console.log('  Normal readings every 2s');
+console.log(`  Anomaly injection every ~${ANOMALY_INTERVAL} rows (${ANOMALY_DURATION} consecutive)`);
+console.log(`  Status column set to PENDING for ML pipeline to classify`);
+console.log(`  CSV: ${filePath}`);
+console.log('');
+
 setInterval(() => {
-    const row = generateRow();
+    const isAnomaly = isAnomalyWindow();
+    const row = isAnomaly ? generateAnomalyRow() : generateNormalRow();
 
     const line =
         `${row.timestamp},${row.vibration},${row.acoustic},${row.pressure},${row.temperature},${row.status}\n`;
 
     fs.appendFileSync(filePath, line);
 
-    console.log("Wrote:", line.trim());
+    const tag = isAnomaly ? ' ⚠ ANOMALY' : '';
+    console.log(`Wrote: vib=${row.vibration} aco=${row.acoustic} prs=${row.pressure} tmp=${row.temperature}${tag}`);
 }, 2000);

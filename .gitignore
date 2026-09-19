@@ -3,3 +3,10 @@ node_modules/
 backend/mock_data/sensor_log.csv
 backend/mock_data/latest_capture.jpg
 frontend/dist/
+
+# ML pipeline
+ml/models/
+ml/__pycache__/
+ml/.venv/
+__pycache__/
+*.pyc

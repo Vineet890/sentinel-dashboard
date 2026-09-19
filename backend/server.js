@@ -9,6 +9,7 @@ const app = express();
 app.use(cors());
 
 const PORT = 5000;
+const ML_API_URL = process.env.ML_API_URL || 'http://localhost:8001';
 
 const csvPath = path.join(
     __dirname,
@@ -43,6 +44,29 @@ function readLatestRow() {
     return row;
 }
 
+// ─── Fetch ML prediction (non-blocking helper) ────────────────────────────────
+
+let lastMlPrediction = null;
+let mlEngineOnline = false;
+
+async function fetchMlPrediction() {
+    try {
+        const response = await fetch(`${ML_API_URL}/api/ml/predict`, {
+            signal: AbortSignal.timeout(2000),
+        });
+        if (response.ok) {
+            lastMlPrediction = await response.json();
+            mlEngineOnline = true;
+        }
+    } catch {
+        // ML engine not available — use CSV status as-is
+        mlEngineOnline = false;
+    }
+}
+
+// Poll ML engine every 1.5s for latest prediction
+setInterval(fetchMlPrediction, 1500);
+
 // ─── Telemetry ─────────────────────────────────────────────────────────────────
 
 app.get('/api/telemetry', (req, res) => {
@@ -54,25 +78,68 @@ app.get('/api/telemetry', (req, res) => {
         const days = Math.floor(uptimeMs / 86400000);
         const hours = Math.floor((uptimeMs % 86400000) / 3600000);
         row.uptime = `${days}d ${hours}h`;
-        
+
         // Expose raw start timestamp so frontend can calculate dynamic uptime
         row.server_start = SERVER_START;
 
-        // Compute risk score from sensor values (normalised 0–1)
-        // Weighted combination: vibration contributes most, then acoustic
-        const vib = parseFloat(row.vibration) || 0;
-        const aco = parseFloat(row.acoustic) || 0;
+        // Use ML engine prediction if available, otherwise fall back to CSV status
+        if (mlEngineOnline && lastMlPrediction) {
+            row.risk_score = lastMlPrediction.anomaly_score;
+            row.risk_label = lastMlPrediction.status;
+            // If CSV status is PENDING, use ML classification
+            if (!row.status || row.status === 'PENDING') {
+                row.status = lastMlPrediction.status;
+            }
 
-        const vibNorm = Math.min(vib / 0.30, 1.0);           // 0.30 G = max expected
-        const acoNorm = Math.min((aco - 40) / 60, 1.0);      // 40–100 dB range
+            // Attach ML feature breakdown
+            row.ml = {
+                anomaly_score: lastMlPrediction.anomaly_score,
+                if_score: lastMlPrediction.if_score,
+                zscore_score: lastMlPrediction.zscore_score,
+                roc_score: lastMlPrediction.roc_score,
+                status: lastMlPrediction.status,
+                engine: 'online',
+            };
+        } else {
+            // Fallback: simple weighted formula (legacy)
+            const vib = parseFloat(row.vibration) || 0;
+            const aco = parseFloat(row.acoustic) || 0;
+            const vibNorm = Math.min(vib / 0.30, 1.0);
+            const acoNorm = Math.min((aco - 40) / 60, 1.0);
+            const riskScore = (0.60 * vibNorm + 0.40 * acoNorm);
 
-        const riskScore = (0.60 * vibNorm + 0.40 * acoNorm);
-        row.risk_score = riskScore.toFixed(2);
-        row.risk_label = riskScore < 0.3 ? 'LOW' : riskScore < 0.6 ? 'MODERATE' : 'HIGH';
+            row.risk_score = riskScore.toFixed(2);
+            row.risk_label = riskScore < 0.3 ? 'LOW' : riskScore < 0.6 ? 'MODERATE' : 'HIGH';
+
+            // If CSV status is PENDING and no ML, use threshold-based status
+            if (!row.status || row.status === 'PENDING') {
+                row.status = riskScore >= 0.6 ? 'CRITICAL' : riskScore >= 0.3 ? 'WATCH' : 'NORMAL';
+            }
+
+            row.ml = { engine: 'offline' };
+        }
 
         res.json(row);
     } catch (err) {
         res.status(500).json({ error: 'Failed to read telemetry' });
+    }
+});
+
+// ─── ML Engine Status Proxy ────────────────────────────────────────────────────
+
+app.get('/api/ml-status', async (req, res) => {
+    try {
+        const response = await fetch(`${ML_API_URL}/api/ml/status`, {
+            signal: AbortSignal.timeout(2000),
+        });
+        if (response.ok) {
+            const data = await response.json();
+            res.json({ online: true, ...data });
+        } else {
+            res.json({ online: false, error: 'ML engine returned non-OK' });
+        }
+    } catch {
+        res.json({ online: false, error: 'ML engine not reachable' });
     }
 });
 
@@ -104,7 +171,7 @@ app.get('/api/events', (req, res) => {
         // Combine telemetry and SMS logs, sort by timestamp
         let combined = [...rows, ...autoSmsLogs];
         combined.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-        
+
         // Take last 20
         combined = combined.slice(-20);
 
@@ -116,9 +183,6 @@ app.get('/api/events', (req, res) => {
 });
 
 // ─── Camera snapshot ───────────────────────────────────────────────────────────
-// Serves the latest JPEG capture from the camera pipeline.
-// In production: the Jetson camera script saves frames to this path.
-// In development: generate_mock.js creates a placeholder image.
 
 app.get('/api/camera', (req, res) => {
     if (fs.existsSync(cameraPath)) {
@@ -209,6 +273,7 @@ app.post('/api/test-alert', async (req, res) => {
 });
 
 // ─── Automatic State Monitor ───────────────────────────────────────────────────
+// Now reads the ML-determined status from the CSV (which the ML pipeline updates)
 let lastMonitoredState = 'NORMAL';
 
 setInterval(async () => {
@@ -217,36 +282,44 @@ setInterval(async () => {
         const row = readLatestRow();
         if (!row || !row.status) return;
 
-        const currentState = row.status;
+        // Use ML prediction status if available, otherwise CSV status
+        let currentState = row.status;
+        if (mlEngineOnline && lastMlPrediction) {
+            currentState = lastMlPrediction.status;
+        }
+
+        // Skip PENDING status (ML hasn't classified yet)
+        if (currentState === 'PENDING') return;
 
         // Edge trigger: Only trigger ONCE when transitioning INTO CRITICAL
         if (currentState === 'CRITICAL' && lastMonitoredState !== 'CRITICAL') {
-            console.log("CRITICAL state detected! Dispatching automatic SMS...");
+            console.log("CRITICAL state detected by ML engine! Dispatching automatic SMS...");
             lastMonitoredState = 'CRITICAL';
             
             // Add a preliminary log
             autoSmsLogs.push({
                 type: 'sms',
                 timestamp: new Date().toISOString(),
-                msg: 'CRITICAL ALERT — SMS dispatched to control room',
+                msg: 'ML ALERT — CRITICAL anomaly detected, SMS dispatched',
                 level: 'critical'
             });
 
-            const msg = "SENTINEL ALERT: CRITICAL subsidence risk detected at site Alpha-3, Dhanbad. Immediate inspection required.";
+            const score = lastMlPrediction ? lastMlPrediction.anomaly_score : 'N/A';
+            const msg = `SENTINEL ML ALERT: CRITICAL subsidence anomaly detected (score: ${score}) at site Alpha-3, Dhanbad. Immediate inspection required.`;
             const result = await sendSMSAlert(msg);
             
             if (result.success) {
                 autoSmsLogs.push({
                     type: 'sms',
                     timestamp: new Date().toISOString(),
-                    msg: 'CRITICAL ALERT — SMS queued successfully',
+                    msg: 'ML ALERT — SMS queued successfully',
                     level: 'warn' 
                 });
             } else {
                 autoSmsLogs.push({
                     type: 'sms',
                     timestamp: new Date().toISOString(),
-                    msg: 'CRITICAL ALERT — SMS dispatch failed',
+                    msg: 'ML ALERT — SMS dispatch failed',
                     level: 'critical'
                 });
             }
@@ -261,4 +334,5 @@ setInterval(async () => {
 
 app.listen(PORT, () => {
     console.log(`Backend running on http://localhost:${PORT}`);
+    console.log(`ML Engine URL: ${ML_API_URL}`);
 });

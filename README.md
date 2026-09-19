@@ -7,7 +7,7 @@ Built for Smart India Hackathon 2026 under the problem statement for intelligent
 ## The Problem
 Mine subsidence — the gradual or sudden sinking of ground above an underground excavation — is one of the leading causes of catastrophic mining disasters globally. In India, where a significant portion of mining activity involves aging underground infrastructure, real-time anomaly detection is largely absent at the site level. Operators rely on periodic manual inspections, which create dangerous blind spots between readings.
 
-Sentinel addresses this by deploying a low-cost sensor node directly at the mining site that continuously monitors geological precursors and surfaces the data to operators in a readable, actionable dashboard.
+Sentinel addresses this by deploying a low-cost sensor node directly at the mining site that continuously monitors geological precursors and surfaces the data to operators in a readable, actionable dashboard — with an **AI/ML anomaly detection engine** that learns normal sensor baselines and automatically detects and classifies anomalies in real-time.
 
 ## System Architecture
 
@@ -18,11 +18,21 @@ Sentinel addresses this by deploying a low-cost sensor node directly at the mini
 │  ┌─────────────────┐       ┌───────────────────────────────┐    │
 │  │  Sensor Array   │       │   Backend / Edge Compute      │    │
 │  │ ────────────────│       │ ──────────────────────────────│    │
-│  │ • MPU-6050      │──I²C─▶│ • ML Anomaly Detection        │    │
-│  │ • Sound sensor  │       │ • WebSocket Stream (Primary)  │    │
-│  │ • BMP180        │       │ • REST API (Fallback)         │    │
-│  │                 │       │ • Automatic State Monitor     │──┐ │
-│  └─────────────────┘       └────────┬──────────────────────┘  │ │
+│  │ • MPU-6050      │──I²C─▶│ • WebSocket Stream (Primary)  │    │
+│  │ • Sound sensor  │       │ • REST API (Fallback)         │    │
+│  │ • BMP180        │       │ • Automatic State Monitor     │──┐ │
+│  │ • Load cell     │       └────────┬──────────────────────┘  │ │
+│  └─────────────────┘                │                         │ │
+│                                     │ CSV (sensor_log.csv)    │ │
+│                          ┌──────────▼──────────┐              │ │
+│                          │  ML Pipeline        │              │ │
+│                          │ ─────────────────── │              │ │
+│                          │ • Feature Engine    │              │ │
+│                          │ • Isolation Forest  │              │ │
+│                          │ • Z-score Detector  │              │ │
+│                          │ • Anomaly Scoring   │              │ │
+│                          │ • FastAPI (port 8001)│             │ │
+│                          └──────────┬──────────┘              │ │
 └─────────────────────────────────────┼─────────────────────────┼─┘
                                       │                         │
                     WebSocket / REST  │                         │ HTTP POST
@@ -36,20 +46,52 @@ Sentinel addresses this by deploying a low-cost sensor node directly at the mini
                                                           Emergency SMS
 ```
 
-The core telemetry stack runs locally on the edge hardware (Jetson Nano) to ensure dashboard operationality even in disrupted network environments. Emergency alerts securely interface with a Cloud Function SMS Gateway.
+## ML Anomaly Detection Pipeline
+
+The core intelligence of Sentinel is an **unsupervised anomaly detection engine** powered by:
+
+### Isolation Forest (scikit-learn)
+- Trained on historical "normal" sensor data to learn baseline patterns
+- Detects anomalies without requiring labeled failure examples
+- Auto-retrains periodically as new normal data accumulates
+
+### Composite Scoring System
+The ML engine computes a composite anomaly score (0.0–1.0) from three components:
+
+| Component | Weight | Method |
+| :--- | :--- | :--- |
+| **Isolation Forest** | 60% | Unsupervised outlier detection on engineered features |
+| **Z-Score Analysis** | 25% | Statistical deviation from rolling baseline per channel |
+| **Rate-of-Change** | 15% | Spike detection relative to rolling standard deviation |
+
+### Feature Engineering
+Raw sensor values are transformed into a rich feature vector:
+- **Rolling statistics**: Mean and standard deviation over windows of 5, 10, 20 readings
+- **Z-scores**: Per-channel statistical deviation from the learned baseline
+- **Rate-of-change**: Delta from previous reading and spike ratio
+- **Inter-sensor ratios**: Vibration-pressure ratio, pressure-temperature ratio
+
+### Status Classification
+| Score Range | Status | Action |
+| :--- | :--- | :--- |
+| 0.00 – 0.29 | `NORMAL` | No action |
+| 0.30 – 0.59 | `WATCH` | Monitoring alert in dashboard |
+| 0.60 – 1.00 | `CRITICAL` | Automatic SMS dispatch + visual alarm |
 
 ## Features
 
 * **Live Sensor Charts**: 3 real-time scrolling charts (ground vibration, acoustic signature, environmental trend) updated instantly.
-* **3-State Alert System**: `NORMAL` / `WATCH` / `CRITICAL` state machine driven by the sensor anomaly model, with distinct visual and glow indicators.
+* **ML-Driven Anomaly Detection**: Isolation Forest model classifies sensor readings in real-time with a composite anomaly score.
+* **3-State Alert System**: `NORMAL` / `WATCH` / `CRITICAL` state machine driven by the ML anomaly model, with distinct visual and glow indicators.
+* **ML Engine Status**: Real-time indicator showing whether the Isolation Forest engine is online and actively scoring.
 * **Automatic & Manual SMS Alerts**: Edge-triggered automatic SMS dispatch upon entering the `CRITICAL` state, preventing duplicate spam. Includes a manual "Test Alert" dashboard override for drills.
-* **GIS Map Panel**: Integrated Leaflet + OpenStreetMap panel styled to match the dark dashboard theme for precise site geolocation (fully open-source, no billing APIs required).
+* **GIS Map Panel**: Integrated Leaflet + OpenStreetMap panel styled to match the dark dashboard theme for precise site geolocation.
 * **Dual-Transport Telemetry**: Primary low-latency WebSocket connection with an automatic, seamless fallback to REST polling if the socket connection drops.
 * **Connection Loss Detection**: Automatically detects stale data and displays an "Offline" indicator.
-* **Event Log**: Scrolling timestamped log of sensor state transitions and SMS dispatch events natively synchronized between the backend and frontend.
+* **Event Log**: Scrolling timestamped log of sensor state transitions, ML detections, and SMS dispatch events.
 
 ## Quick Start
-*Prerequisites: Node.js ≥ 18, pnpm (or npm)*
+*Prerequisites: Node.js ≥ 18, Python ≥ 3.10, pnpm (or npm)*
 
 **1 — Configure Environment**
 Create a `.env` file in the `backend/` directory:
@@ -58,21 +100,43 @@ SMS_API_KEY=your_gateway_api_key
 ALERT_PHONE=+1234567890
 ```
 
-**2 — Start the mock sensor pipeline**
+**2 — Install ML dependencies**
+```bash
+cd ml
+python -m venv .venv
+.venv/Scripts/pip install -r requirements.txt   # Windows
+# or: .venv/bin/pip install -r requirements.txt  # Linux/Mac
+```
+
+**3 — Start the mock sensor pipeline**
 ```bash
 cd backend
 node mock_data/generate_mock.js
 ```
-*Writes a new sensor row to `sensor_log.csv` every 2 seconds, simulating the physical hardware.*
+*Writes a new sensor row to `sensor_log.csv` every 2 seconds, with periodic anomaly injection.*
 
-**3 — Start the backend API & Alert Monitor**
+**4 — Train the ML model** (first time only)
+```bash
+# Wait for ~60+ rows in sensor_log.csv, then:
+ml/.venv/Scripts/python ml/train.py              # Windows
+# or: ml/.venv/bin/python ml/train.py             # Linux/Mac
+```
+
+**5 — Start the ML engine**
+```bash
+ml/.venv/Scripts/python ml/main.py                # Windows
+# or: ml/.venv/bin/python ml/main.py               # Linux/Mac
+```
+*ML API running on http://localhost:8001*
+
+**6 — Start the backend API & Alert Monitor**
 ```bash
 cd backend
 node server.js
 ```
 *Backend running on http://localhost:5000*
 
-**4 — Start the dashboard**
+**7 — Start the dashboard**
 ```bash
 cd frontend
 pnpm install
@@ -83,19 +147,29 @@ pnpm dev
 ## Repository Structure
 ```text
 sentinel-dashboard/
+├── ml/                            # AI/ML Anomaly Detection Pipeline
+│   ├── main.py                    # Entry point (detector + API server)
+│   ├── model.py                   # Isolation Forest model (train/predict)
+│   ├── feature_engine.py          # Feature engineering (rolling stats, Z-scores)
+│   ├── detector.py                # Real-time CSV watcher + inference loop
+│   ├── api.py                     # FastAPI REST API for ML status/predictions
+│   ├── train.py                   # Standalone training script
+│   ├── config.py                  # Hyperparameters, thresholds, paths
+│   ├── requirements.txt           # Python dependencies
+│   └── models/                    # Trained model artifacts (gitignored)
 ├── backend/
-│   ├── server.js              # Express API, SMS trigger, and REST fallback
-│   ├── .env                   # Secrets (API Key, Phone Number)
+│   ├── server.js                  # Express API, ML proxy, SMS trigger
+│   ├── .env                       # Secrets (API Key, Phone Number)
 │   └── mock_data/
-│       ├── generate_mock.js   # Simulated sensor data writer
-│       └── sensor_log.csv     # Live data store
+│       ├── generate_mock.js       # Simulated sensor data with anomaly injection
+│       └── sensor_log.csv         # Live data store (shared with ML pipeline)
 ├── frontend/
 │   ├── src/
 │   │   ├── hooks/
 │   │   │   └── useSentinelSocket.js # WebSocket & REST fallback logic
-│   │   ├── App.jsx            # Full dashboard UI (React)
-│   │   ├── main.jsx           # Entry point
-│   │   └── index.css          # Global styles + animations
+│   │   ├── App.jsx                # Full dashboard UI (React)
+│   │   ├── main.jsx               # Entry point
+│   │   └── index.css              # Global styles + animations
 │   ├── index.html
 │   ├── vite.config.js
 │   └── package.json
@@ -106,10 +180,21 @@ sentinel-dashboard/
 
 | Method | Endpoint | Response |
 | :--- | :--- | :--- |
-| `GET` | `/api/telemetry` | Latest sensor reading as a JSON object (used in fallback mode) |
-| `GET` | `/api/events` | Last 20 combined sensor/SMS events as JSON array (newest first) |
+| `GET` | `/api/telemetry` | Latest sensor reading + ML anomaly score as JSON |
+| `GET` | `/api/events` | Last 20 combined sensor/SMS events as JSON array |
 | `GET` | `/api/camera` | Latest captured JPEG frame from the edge camera |
+| `GET` | `/api/ml-status` | ML engine health, model info, detector state |
 | `POST` | `/api/test-alert`| Triggers manual SMS alert; returns `{ success, message, smsId }` |
+
+### ML Engine API (port 8001)
+
+| Method | Endpoint | Response |
+| :--- | :--- | :--- |
+| `GET` | `/api/ml/health` | Health check |
+| `GET` | `/api/ml/status` | Model info + detector state |
+| `GET` | `/api/ml/predict` | Latest anomaly score + status + feature breakdown |
+| `GET` | `/api/ml/history?n=50` | Recent N predictions with scores |
+| `POST` | `/api/ml/retrain` | Manually trigger model retraining |
 
 ## Sensor Data Schema
 The canonical data contract between the sensor firmware and the dashboard via `sensor_log.csv`.
@@ -121,21 +206,20 @@ The canonical data contract between the sensor firmware and the dashboard via `s
 | `acoustic` | float | dB SPL | Ambient acoustic level |
 | `pressure` | float | mbar | Barometric pressure |
 | `temperature` | float | °C | Ambient temperature |
-| `strain` | float | kgF | Load cell reading |
-| `status` | string | — | `NORMAL` · `WATCH` · `CRITICAL` — output of the anomaly model |
-
-*Note: The `status` field is the output of the ML anomaly detection stage running on the Jetson, not a raw threshold comparison.*
+| `status` | string | — | `NORMAL` · `WATCH` · `CRITICAL` — output of the ML anomaly model |
 
 ## Hardware Integration (Jetson Nano)
 When deploying the physical sensor pipeline:
 1. The sensor acquisition script writes rows directly to `backend/mock_data/sensor_log.csv`.
-2. To use a different file path, update `csvPath` in `backend/server.js`.
+2. To use a different file path, update `csvPath` in `backend/server.js` and `CSV_PATH` in `ml/config.py`.
 3. Stop `generate_mock.js` — it is no longer needed.
-4. The API server, dashboard, and automatic SMS monitor will continue operating seamlessly.
+4. The ML engine, API server, dashboard, and automatic SMS monitor will continue operating seamlessly.
 
 ## Tech Stack
-* **Frontend:** React 19 · Vite 8 · Recharts 3 · Leaflet (OSM) · Tailwind CSS 4
+* **Frontend:** React 19 · Vite 8 · Recharts 3 · Leaflet (OSM)
 * **Backend:** Node.js · Express 5
+* **ML Pipeline:** Python 3.13 · scikit-learn · pandas · NumPy · FastAPI · Uvicorn
+* **ML Model:** Isolation Forest (unsupervised anomaly detection)
 * **Data Transport:** WebSockets (Primary) · REST (Fallback)
 * **Alerting:** Cloud Functions SMS Gateway Master
 * **Edge Hardware:** NVIDIA Jetson Nano

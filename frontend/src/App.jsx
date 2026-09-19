@@ -621,7 +621,7 @@ function TopBar({ state, nodeId, connected, lastUpdateAgo, manualOverride, dataS
   )
 }
 
-function BottomBar({ camTimestamp, onSendAlert, riskScore, riskLabel, uptime, camConnected }) {
+function BottomBar({ camTimestamp, onSendAlert, riskScore, riskLabel, uptime, camConnected, mlEngine }) {
   const [alertState, setAlertState] = useState('idle') // idle | sending | success | error
   const [camError, setCamError] = useState(false)
   const [camKey, setCamKey] = useState(0)
@@ -735,6 +735,31 @@ function BottomBar({ camTimestamp, onSendAlert, riskScore, riskLabel, uptime, ca
       ))}
 
       <div style={{ flex: 1 }} />
+
+      {/* ML Engine status indicator */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'center' }}>
+        <span style={{
+          fontFamily: "'Barlow Condensed', sans-serif", fontSize: 8, fontWeight: 600,
+          letterSpacing: '0.14em', textTransform: 'uppercase', color: C.ghost,
+        }}>
+          ML Engine
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <div style={{
+            width: 6, height: 6, borderRadius: '50%',
+            background: mlEngine === 'online' ? '#2ECC71' : mlEngine === 'offline' ? '#E74C3C' : '#F1C40F',
+            boxShadow: mlEngine === 'online' ? '0 0 6px #2ECC7180' : 'none',
+          }} />
+          <span style={{
+            fontFamily: "'JetBrains Mono', monospace", fontSize: 9,
+            color: mlEngine === 'online' ? '#2ECC71' : mlEngine === 'offline' ? '#E74C3C' : '#F1C40F',
+          }}>
+            {mlEngine === 'online' ? 'Isolation Forest' : mlEngine === 'offline' ? 'Offline' : 'Connecting...'}
+          </span>
+        </div>
+      </div>
+
+      <div style={{ width: 1, height: 40, background: C.border, flexShrink: 0 }} />
 
       {/* Subsidence risk meter — dynamic from backend */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
@@ -970,6 +995,7 @@ export default function App() {
   const [serverStart, setServerStart] = useState(null)
   const [uptimeStr, setUptimeStr] = useState('—')
   const [camConnected, setCamConnected] = useState(false)
+  const [mlEngine, setMlEngine] = useState('connecting') // 'online' | 'offline' | 'connecting'
 
   // ─── WebSocket hook (primary data source) ─────────────────────────────────
   const { wsConnected, wsFailed, latestData: wsData, dataSource } = useSentinelSocket()
@@ -1001,6 +1027,28 @@ export default function App() {
     setLogEntries((prev) => [...prev.slice(-149), { id: ++_logId, ts: nowStr(), msg, level }])
   }, [])
 
+  // ─── ML Engine health check ──────────────────────────────────────────────────
+  useEffect(() => {
+    const checkMl = async () => {
+      try {
+        const res = await fetch('http://localhost:5000/api/ml-status', {
+          signal: AbortSignal.timeout(2000),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          setMlEngine(data.online ? 'online' : 'offline')
+        } else {
+          setMlEngine('offline')
+        }
+      } catch {
+        setMlEngine('offline')
+      }
+    }
+    checkMl()
+    const t = setInterval(checkMl, 5000)
+    return () => clearInterval(t)
+  }, [])
+
   // ─── Shared function: apply a telemetry data object to all chart/state vars ─
   const applyTelemetry = useCallback((data) => {
     const t = tsFor(new Date(data.timestamp))
@@ -1010,11 +1058,17 @@ export default function App() {
     setLastUpdateAgo(null)
     setCamConnected(true)
 
-    if (data.risk_score) setRiskScore(String(data.risk_score))
+    if (data.risk_score != null) setRiskScore(String(data.risk_score))
     if (data.risk_label) setRiskLabel(data.risk_label)
     if (data.server_start) setServerStart(data.server_start)
 
-    if (!manualOverrideRef.current) {
+    // Track ML engine status from telemetry response
+    if (data.ml) {
+      setMlEngine(data.ml.engine === 'online' ? 'online' : 'offline')
+    }
+
+    // Use ML-determined status, skip PENDING
+    if (!manualOverrideRef.current && data.status && data.status !== 'PENDING') {
       setSystemState(data.status)
     }
 
@@ -1230,6 +1284,7 @@ export default function App() {
         riskLabel={riskLabel}
         uptime={uptimeStr}
         camConnected={camConnected}
+        mlEngine={mlEngine}
       />
     </div>
   )
