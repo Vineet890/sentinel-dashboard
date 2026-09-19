@@ -48,10 +48,10 @@ const MINE_LOCATION = { lat: 23.7957, lng: 86.4304 }
 
 
 function nowStr() {
-  return new Date().toLocaleTimeString('en-GB', { hour12: false })
+  return new Date().toLocaleTimeString('en-GB', { hour12: false, timeZone: 'Asia/Kolkata' })
 }
 function tsFor(d) {
-  return d.toLocaleTimeString('en-GB', { hour12: false })
+  return d.toLocaleTimeString('en-GB', { hour12: false, timeZone: 'Asia/Kolkata' })
 }
 
 
@@ -585,7 +585,7 @@ function TopBar({ state, nodeId, connected, lastUpdateAgo, manualOverride, dataS
         fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: '#8AA4BE',
         letterSpacing: '0.04em',
       }}>
-        {clock} UTC
+        {clock} IST
       </span>
 
       <div style={{ width: 1, height: 22, background: C.border }} />
