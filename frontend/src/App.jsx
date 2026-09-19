@@ -6,14 +6,9 @@ import {
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { useSentinelSocket, normalizeTelemetry } from './hooks/useSentinelSocket'
+import { useSentinelSocket } from './hooks/useSentinelSocket'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
-const JETSON_API_URL =
-  import.meta.env?.VITE_JETSON_API_URL || 'http://192.168.50.2:8000'
-const JETSON_CAMERA_URL =
-  import.meta.env?.VITE_JETSON_CAMERA_URL || ''
 
 const STATE_COLOR = {
   NORMAL: '#2ECC71',
@@ -43,28 +38,27 @@ const SITE_META = {
   site: 'Alpha-3',
   depth: '312 m',
   zone: 'Level-7B',
-  operator: 'R. Kowalski',
+  operator: 'Sentinel Control',
+  location: 'Dhanbad, Jharkhand',
 }
 
 // Dhanbad, Jharkhand — major coal mining region in India
 const MINE_LOCATION = { lat: 23.7957, lng: 86.4304 }
 
+
+
 function nowStr() {
-  return new Date().toLocaleTimeString('en-GB', { hour12: false })
+  return new Date().toLocaleTimeString('en-GB', { hour12: false, timeZone: 'Asia/Kolkata' })
+}
+function tsFor(d) {
+  return d.toLocaleTimeString('en-GB', { hour12: false, timeZone: 'Asia/Kolkata' })
 }
 
-function tsFor(d) {
-  if (!d || isNaN(d.getTime())) return nowStr()
-  return d.toLocaleTimeString('en-GB', { hour12: false })
-}
 
 // ─── Chart tooltip ────────────────────────────────────────────────────────────
 
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
-  const validPayload = payload.filter((p) => p.value !== null && p.value !== undefined)
-  if (!validPayload.length) return null
-
   return (
     <div style={{
       fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
@@ -72,9 +66,9 @@ function ChartTooltip({ active, payload, label }) {
       borderRadius: 4, padding: '6px 10px', lineHeight: 1.6,
     }}>
       <div style={{ color: C.ghost, marginBottom: 2, fontSize: 9 }}>{label}</div>
-      {validPayload.map((p) => (
+      {payload.map((p) => (
         <div key={p.name} style={{ color: p.color }}>
-          {p.name}: <span style={{ color: C.data }}>{typeof p.value === 'number' ? p.value.toFixed(4) : p.value}</span>
+          {p.name}: <span style={{ color: C.data }}>{p.value}</span>
         </div>
       ))}
     </div>
@@ -83,27 +77,17 @@ function ChartTooltip({ active, payload, label }) {
 
 // ─── Chart card ───────────────────────────────────────────────────────────────
 
-function ChartCard({
-  title,
-  data,
-  lines,
-  unit,
-  yDomain,
-  y2Domain,
-  latestValue,
-  yAxisWidth,
-  y2AxisWidth,
-  isUnavailable,
-}) {
+function ChartCard({ title, data, lines, unit, yDomain, y2Domain, latestValue, yAxisWidth, y2AxisWidth, style }) {
   const dual = !!y2Domain
   const latest = data[data.length - 1]
-  const hasData = !isUnavailable && data.length > 0
+  const hasData = data.length > 0
 
   return (
     <div style={{
       background: C.card, border: `1px solid ${C.border}`,
       borderRadius: 8, padding: '10px 12px 6px',
       display: 'flex', flexDirection: 'column', gap: 6,
+      ...style
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span style={{
@@ -113,7 +97,7 @@ function ChartCard({
           {title}
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {lines.map((l) => (
+          {lines.map(l => (
             <span key={l.key} style={{
               fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: l.color,
               display: 'flex', alignItems: 'center', gap: 4,
@@ -124,7 +108,7 @@ function ChartCard({
           ))}
           <span style={{
             fontFamily: "'JetBrains Mono', monospace", fontSize: 11, fontWeight: 600,
-            color: isUnavailable ? C.ghost : lines[0].color,
+            color: lines[0].color,
           }}>
             {latestValue ?? (latest ? String(latest.v) : '—')}
           </span>
@@ -140,7 +124,7 @@ function ChartCard({
               tick={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, fill: C.ghost }}
               tickLine={false}
               axisLine={{ stroke: C.border }}
-              interval={Math.max(1, Math.floor(data.length / 4))}
+              interval={Math.floor(MAX_PTS / 4)}
             />
             {dual ? (
               <>
@@ -156,11 +140,11 @@ function ChartCard({
                 <YAxis
                   yAxisId="right"
                   orientation="right"
-                  domain={y2Domain || ['auto', 'auto']}
+                  domain={y2Domain}
                   tick={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, fill: C.ghost }}
                   tickLine={false}
                   axisLine={false}
-                  width={y2AxisWidth ?? 32}
+                  width={y2AxisWidth ?? 28}
                   tickCount={4}
                 />
               </>
@@ -175,7 +159,7 @@ function ChartCard({
               />
             )}
             <Tooltip content={<ChartTooltip />} />
-            {lines.map((l) => (
+            {lines.map(l => (
               <Line
                 key={l.key}
                 type="monotone"
@@ -184,7 +168,6 @@ function ChartCard({
                 stroke={l.color}
                 strokeWidth={1.5}
                 dot={false}
-                connectNulls={false}
                 isAnimationActive={false}
                 yAxisId={dual ? (l.yAxisId || 'left') : undefined}
               />
@@ -193,20 +176,14 @@ function ChartCard({
         </ResponsiveContainer>
       ) : (
         <div style={{
-          height: 104, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-          border: `1px dashed ${C.border}`, borderRadius: 4, gap: 4,
+          height: 104, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          border: `1px dashed ${C.border}`, borderRadius: 4,
         }}>
           <span style={{
             fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
             color: C.ghost, letterSpacing: '0.08em',
           }}>
-            {isUnavailable ? 'Sensor stream offline / not exposed' : 'Awaiting live telemetry…'}
-          </span>
-          <span style={{
-            fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 9,
-            color: '#2A4060',
-          }}>
-            {isUnavailable ? 'FastAPI hardware stream does not include this channel' : 'WebSocket connecting to Jetson'}
+            Awaiting data…
           </span>
         </div>
       )}
@@ -224,52 +201,22 @@ function ChartCard({
 // ─── Status card ──────────────────────────────────────────────────────────────
 
 const STATE_DESC = {
-  NORMAL: 'Telemetry within baseline limits. Jetson prototype risk engine reports NORMAL.',
-  WATCH: 'Sensor signals indicate elevated anomaly score relative to baseline. Heightened monitoring.',
-  CRITICAL: 'Threshold exceeded on Jetson risk engine. Escalation and site inspection required.',
+  NORMAL: 'All parameters within operational thresholds. No intervention required.',
+  WATCH: 'One or more sensors approaching alert threshold. Heightened monitoring active.',
+  CRITICAL: 'Threshold exceeded. Immediate inspection and escalation required.',
 }
 
 const SENSOR_ROWS = [
-  {
-    label: 'LIS3DH ACCELEROMETER',
-    check: (s, d) => d?.lis3dh?.magnitude_g != null,
-    onlineText: 'LIVE',
-    offlineText: 'OFFLINE',
-  },
-  {
-    label: 'ADXL345 ACCELEROMETER',
-    check: (s, d) => d?.adxl345?.magnitude_g != null,
-    onlineText: 'LIVE',
-    offlineText: 'OFFLINE',
-  },
-  {
-    label: 'BAROMETRIC (BMP280)',
-    check: (s, d) => d?.pressure != null,
-    onlineText: 'LIVE',
-    offlineText: 'OFFLINE',
-  },
-  {
-    label: 'THERMAL (BMP280)',
-    check: (s, d) => d?.temperature != null,
-    onlineText: 'LIVE',
-    offlineText: 'OFFLINE',
-  },
-  {
-    label: 'ACOUSTIC (INMP441)',
-    check: () => false,
-    onlineText: 'LIVE',
-    offlineText: 'UNLINKED',
-  },
-  {
-    label: 'LOAD CELL / STRAIN',
-    check: () => false,
-    onlineText: 'LIVE',
-    offlineText: 'UNLINKED',
-  },
+  { label: 'ACCELEROMETER', ok: (s) => s === 'NORMAL' },
+  { label: 'ACOUSTIC MIC', ok: (s) => s === 'NORMAL' },
+  { label: 'BAROMETRIC', ok: (s) => s !== 'CRITICAL' },
+  { label: 'THERMISTOR', ok: () => true },
+  { label: 'LOAD CELL', ok: (s) => s === 'NORMAL' },
+  { label: 'CAMERA LINK', ok: () => true },
 ]
 
-function StatusCard({ state, onStateChange, manualOverride, onSetOverride, latestData }) {
-  const color = STATE_COLOR[state] || '#2ECC71'
+function StatusCard({ state, onStateChange, manualOverride, onSetOverride }) {
+  const color = STATE_COLOR[state]
   const glowClass = state === 'WATCH' ? 'pulse-watch' : state === 'CRITICAL' ? 'pulse-critical' : ''
 
   return (
@@ -341,7 +288,7 @@ function StatusCard({ state, onStateChange, manualOverride, onSetOverride, lates
           fontFamily: "'JetBrains Mono', monospace", fontSize: 8,
           color: C.ghost, letterSpacing: '0.12em', marginTop: 4,
         }}>
-          JETSON RISK ENGINE
+          SYSTEM STATE
         </div>
       </div>
 
@@ -349,17 +296,16 @@ function StatusCard({ state, onStateChange, manualOverride, onSetOverride, lates
 
       {/* Sensor rows */}
       <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 7, paddingLeft: 10 }}>
-        {SENSOR_ROWS.map(({ label, check, onlineText, offlineText }) => {
-          const isLive = check(state, latestData)
-          const dotColor = isLive ? '#2ECC71' : '#3A5270'
-          const statusText = isLive ? onlineText : offlineText
-
+        {SENSOR_ROWS.map(({ label, ok }) => {
+          const isOk = ok(state)
+          const dotColor = isOk ? '#2ECC71' : state === 'WATCH' ? '#F1C40F' : '#E74C3C'
+          const statusText = isOk ? 'OK' : state === 'WATCH' ? 'WARN' : 'FAULT'
           return (
             <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div style={{
                 width: 6, height: 6, borderRadius: '50%',
                 background: dotColor,
-                boxShadow: isLive ? `0 0 5px ${dotColor}80` : undefined,
+                boxShadow: isOk ? `0 0 5px ${dotColor}80` : undefined,
                 flexShrink: 0,
               }} />
               <span style={{
@@ -386,10 +332,10 @@ function StatusCard({ state, onStateChange, manualOverride, onSetOverride, lates
         color: '#4A6080', lineHeight: 1.55, paddingLeft: 10, paddingRight: 4,
         alignSelf: 'flex-start',
       }}>
-        {STATE_DESC[state] || STATE_DESC.NORMAL}
+        {STATE_DESC[state]}
       </div>
 
-      {/* Manual test state override for local demo checks */}
+      {/* Demo state override — holds state until "Resume Live" is clicked */}
       <div style={{ width: '100%', paddingLeft: 10, paddingRight: 4 }}>
         <div style={{
           display: 'flex', alignItems: 'center', gap: 5,
@@ -525,7 +471,7 @@ function EventLog({ entries }) {
             {/* Level strip */}
             <div style={{
               width: 2, borderRadius: 1,
-              background: LEVEL_COLOR[e.level] || C.dim,
+              background: LEVEL_COLOR[e.level],
               alignSelf: 'stretch', flexShrink: 0, minWidth: 2,
             }} />
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -560,18 +506,6 @@ function TopBar({ state, nodeId, connected, lastUpdateAgo, manualOverride, dataS
     const t = setInterval(() => setClock(nowStr()), 1000)
     return () => clearInterval(t)
   }, [])
-
-  const connectionLabel = connected
-    ? (dataSource === 'ws' ? 'Live (WS)' : 'Live (REST)')
-    : dataSource === 'connecting'
-      ? 'Connecting...'
-      : 'Offline'
-
-  const connectionColor = connected
-    ? '#2ECC71'
-    : dataSource === 'connecting'
-      ? '#F1C40F'
-      : '#E74C3C'
 
   return (
     <div style={{
@@ -608,16 +542,19 @@ function TopBar({ state, nodeId, connected, lastUpdateAgo, manualOverride, dataS
           className={connected ? 'dot-online' : ''}
           style={{
             width: 7, height: 7, borderRadius: '50%',
-            background: connectionColor,
-            boxShadow: `0 0 6px ${connectionColor}`,
+            background: connected ? '#2ECC71' : '#E74C3C',
+            boxShadow: `0 0 6px ${connected ? '#2ECC71' : '#E74C3C'}`,
           }}
         />
         <span style={{
           fontFamily: "'Barlow Condensed', sans-serif", fontSize: 11, fontWeight: 600,
           letterSpacing: '0.12em', textTransform: 'uppercase',
-          color: connectionColor,
+          color: connected ? '#2ECC71' : '#E74C3C',
         }}>
-          {connectionLabel}
+          {connected
+            ? (dataSource === 'ws' ? 'Live (WS)' : 'Live (Poll)')
+            : 'Offline'
+          }
         </span>
         {!connected && lastUpdateAgo !== null && (
           <span style={{
@@ -649,7 +586,7 @@ function TopBar({ state, nodeId, connected, lastUpdateAgo, manualOverride, dataS
         fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: '#8AA4BE',
         letterSpacing: '0.04em',
       }}>
-        {clock} Local
+        {clock} IST
       </span>
 
       <div style={{ width: 1, height: 22, background: C.border }} />
@@ -663,7 +600,7 @@ function TopBar({ state, nodeId, connected, lastUpdateAgo, manualOverride, dataS
           fontFamily: "'Barlow Condensed', sans-serif", fontSize: 8,
           letterSpacing: '0.14em', textTransform: 'uppercase', color: C.ghost,
         }}>
-          Jetson Node (192.168.50.2)
+          Site Node
         </span>
       </div>
 
@@ -672,11 +609,11 @@ function TopBar({ state, nodeId, connected, lastUpdateAgo, manualOverride, dataS
       {/* Current state badge */}
       <div style={{
         padding: '4px 11px', borderRadius: 4,
-        border: `1px solid ${STATE_COLOR[state] || '#2ECC71'}50`,
-        background: (STATE_COLOR[state] || '#2ECC71') + '18',
+        border: `1px solid ${STATE_COLOR[state]}50`,
+        background: STATE_COLOR[state] + '18',
         fontFamily: "'Barlow Condensed', sans-serif", fontSize: 12, fontWeight: 700,
         letterSpacing: '0.16em', textTransform: 'uppercase',
-        color: STATE_COLOR[state] || '#2ECC71',
+        color: STATE_COLOR[state],
       }}>
         {state}
       </div>
@@ -686,7 +623,7 @@ function TopBar({ state, nodeId, connected, lastUpdateAgo, manualOverride, dataS
 
 function BottomBar({ camTimestamp, onSendAlert, riskScore, riskLabel, uptime, camConnected }) {
   const [alertState, setAlertState] = useState('idle') // idle | sending | success | error
-  const [camError, setCamError] = useState(!JETSON_CAMERA_URL)
+  const [camError, setCamError] = useState(false)
   const [camKey, setCamKey] = useState(0)
 
   const handleAlert = async () => {
@@ -697,9 +634,8 @@ function BottomBar({ camTimestamp, onSendAlert, riskScore, riskLabel, uptime, ca
     setTimeout(() => setAlertState('idle'), 3000)
   }
 
-  // Refresh camera image every 10 seconds if URL is provided
+  // Refresh camera image every 10 seconds
   useEffect(() => {
-    if (!JETSON_CAMERA_URL) return
     const t = setInterval(() => {
       setCamError(false)
       setCamKey((k) => k + 1)
@@ -707,15 +643,16 @@ function BottomBar({ camTimestamp, onSendAlert, riskScore, riskLabel, uptime, ca
     return () => clearInterval(t)
   }, [])
 
-  const riskVal = typeof riskScore === 'number' ? riskScore : parseFloat(riskScore) || 0
-  const riskColor = riskLabel === 'CRITICAL' ? '#E74C3C' : riskLabel === 'WATCH' ? '#F1C40F' : '#2ECC71'
-  const filledBars = Math.max(1, Math.min(10, Math.round(riskVal * 10) || (riskLabel === 'CRITICAL' ? 10 : riskLabel === 'WATCH' ? 6 : 2)))
+  const riskVal = parseFloat(riskScore) || 0
+  const riskColor = riskVal < 0.3 ? '#2ECC71' : riskVal < 0.6 ? '#F1C40F' : '#E74C3C'
+  const filledBars = Math.max(1, Math.min(10, Math.round(riskVal * 10)))
 
   const META = [
-    { label: 'SITE', value: 'Alpha-3' },
-    { label: 'DEPTH', value: '312 m' },
-    { label: 'ZONE', value: 'Level-7B' },
-    { label: 'OPERATOR', value: 'R. Kowalski' },
+    { label: 'SITE', value: SITE_META.site },
+    { label: 'LOCATION', value: SITE_META.location },
+    { label: 'DEPTH', value: SITE_META.depth },
+    { label: 'ZONE', value: SITE_META.zone },
+    { label: 'OPERATOR', value: SITE_META.operator },
     { label: 'UPTIME', value: uptime || '—' },
   ]
 
@@ -730,20 +667,20 @@ function BottomBar({ camTimestamp, onSendAlert, riskScore, riskLabel, uptime, ca
         fontFamily: "'Barlow Condensed', sans-serif", fontSize: 10, fontWeight: 600,
         letterSpacing: '0.16em', textTransform: 'uppercase', color: C.dim, flexShrink: 0,
       }}>
-        Optical Feed
+        Latest Capture
       </span>
 
-      {/* Camera thumbnail — graceful NO FEED handling */}
+      {/* Camera thumbnail — live from backend, fallback to SVG placeholder */}
       <div style={{
         position: 'relative', borderRadius: 5, overflow: 'hidden',
         border: `1px solid ${C.borderBright}`, height: 60, width: 107, flexShrink: 0,
         background: '#040A14',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
-        {JETSON_CAMERA_URL && !camError ? (
+        {!camError ? (
           <img
             key={camKey}
-            src={`${JETSON_CAMERA_URL}?t=${camKey}`}
+            src={`http://localhost:5000/api/camera?t=${camKey}`}
             alt="Site camera"
             onError={() => setCamError(true)}
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
@@ -772,8 +709,8 @@ function BottomBar({ camTimestamp, onSendAlert, riskScore, riskLabel, uptime, ca
           display: 'flex', justifyContent: 'space-between',
         }}>
           <span>{camTimestamp}</span>
-          <span style={{ color: camConnected && JETSON_CAMERA_URL && !camError ? '#2ECC71' : C.ghost }}>
-            {camConnected && JETSON_CAMERA_URL && !camError ? '●' : '○'} CAM-04
+          <span style={{ color: camConnected ? '#2ECC71' : C.ghost }}>
+            {camConnected ? '●' : '○'} CAM-04
           </span>
         </div>
       </div>
@@ -799,13 +736,13 @@ function BottomBar({ camTimestamp, onSendAlert, riskScore, riskLabel, uptime, ca
 
       <div style={{ flex: 1 }} />
 
-      {/* Prototype risk meter — from Jetson baseline anomaly engine */}
+      {/* Subsidence risk meter — dynamic from backend */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
         <span style={{
           fontFamily: "'Barlow Condensed', sans-serif", fontSize: 8, fontWeight: 600,
           letterSpacing: '0.14em', textTransform: 'uppercase', color: C.ghost,
         }}>
-          Anomaly Score (Risk Engine)
+          Risk Index
         </span>
         <div style={{ display: 'flex', gap: 2 }}>
           {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => {
@@ -821,13 +758,13 @@ function BottomBar({ camTimestamp, onSendAlert, riskScore, riskLabel, uptime, ca
           })}
         </div>
         <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: riskColor }}>
-          {riskLabel} · Score {typeof riskVal === 'number' ? riskVal.toFixed(3) : riskVal}
+          {riskLabel || 'LOW'} — {riskScore || '0.00'}
         </span>
       </div>
 
       <div style={{ width: 1, height: 40, background: C.border, flexShrink: 0 }} />
 
-      {/* SMS alert button — fails gracefully if not configured on Jetson */}
+      {/* SMS alert button */}
       <button
         onClick={handleAlert}
         disabled={alertState === 'sending'}
@@ -847,23 +784,59 @@ function BottomBar({ camTimestamp, onSendAlert, riskScore, riskLabel, uptime, ca
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
           <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 014.52 12 19.79 19.79 0 011.2 3.37 2 2 0 013.18 1h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L7.09 8.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-        {alertState === 'sending'
-          ? 'Dispatching...'
-          : alertState === 'success'
-            ? 'Alert Acknowledged'
-            : alertState === 'error'
-              ? 'Alert Service Offline'
-              : 'Dispatch Alert (SMS)'}
+        {alertState === 'sending' ? 'Sending...' : alertState === 'success' ? 'SMS sent successfully' : alertState === 'error' ? 'SMS failed' : 'Send Test Alert (SMS)'}
       </button>
     </div>
   )
+}
+
+// ─── App ─────────────────────────────────────────────────────────────────────
+
+function createLogFromTelemetry(data, id) {
+  if (data.type === 'sms') {
+    return {
+      id,
+      ts: tsFor(new Date(data.timestamp)),
+      msg: data.msg,
+      level: data.level,
+    }
+  }
+
+  const time = tsFor(new Date(data.timestamp))
+
+  if (data.status === 'CRITICAL') {
+    return {
+      id,
+      ts: time,
+      msg: `CRITICAL sensor reading — vibration ${data.vibration}G`,
+      level: 'critical',
+    }
+  }
+
+  if (data.status === 'WATCH') {
+    return {
+      id,
+      ts: time,
+      msg: `Sensor reading requires monitoring — vibration ${data.vibration}G`,
+      level: 'warn',
+    }
+  }
+
+  return {
+    id,
+    ts: time,
+    msg: `Sensors nominal — vibration ${data.vibration}G, pressure ${data.pressure} mbar`,
+    level: 'info',
+  }
 }
 
 // ─── GIS Map Panel ────────────────────────────────────────────────────────────
 
 const MAP_CONTAINER = { width: '100%', height: '100%' }
 
-function MapCard({ state, latestData }) {
+
+
+function MapCard({ state }) {
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
   const markerColor = STATE_COLOR[state] || '#2ECC71'
 
@@ -895,7 +868,7 @@ function MapCard({ state, latestData }) {
           fontFamily: "'Barlow Condensed', sans-serif", fontSize: 11, fontWeight: 600,
           letterSpacing: '0.12em', textTransform: 'uppercase', color: C.ghost,
         }}>
-          Map unavailable — offline mode
+          Map unavailable \u2014 offline mode
         </span>
         <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: C.dim }}>
           {MINE_LOCATION.lat.toFixed(4)}°N, {MINE_LOCATION.lng.toFixed(4)}°E
@@ -915,12 +888,8 @@ function MapCard({ state, latestData }) {
     className: 'custom-leaflet-marker',
     iconSize: [32, 32],
     iconAnchor: [16, 32],
-    popupAnchor: [0, -32],
+    popupAnchor: [0, -32]
   })
-
-  const vibVal = latestData?.vibration != null ? `${Number(latestData.vibration).toFixed(4)} G` : '—'
-  const tempVal = latestData?.temperature != null ? `${Number(latestData.temperature).toFixed(1)} °C` : '—'
-  const pressVal = latestData?.pressure != null ? `${Number(latestData.pressure).toFixed(1)} hPa` : '—'
 
   return (
     <div style={{
@@ -936,7 +905,7 @@ function MapCard({ state, latestData }) {
             fontFamily: "'Barlow Condensed', sans-serif", fontSize: 13, fontWeight: 700,
             letterSpacing: '0.10em', textTransform: 'uppercase', color: C.ink,
           }}>
-            Site Location & Node Deployment
+            Site Location
           </span>
         </div>
         <span style={{
@@ -962,24 +931,22 @@ function MapCard({ state, latestData }) {
           />
           <Marker position={[MINE_LOCATION.lat, MINE_LOCATION.lng]} icon={customIcon}>
             <Popup>
-              <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: '#1a1a1a', minWidth: 170 }}>
+              <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: '#1a1a1a', minWidth: 160 }}>
                 <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 14, fontWeight: 700 }}>MN-04 — {SITE_META.site}</div>
                 <div>Depth: {SITE_META.depth}</div>
                 <div>Zone: {SITE_META.zone}</div>
                 <div>Operator: {SITE_META.operator}</div>
-                <div style={{ marginTop: 4, fontWeight: 600 }}>LIS3DH: {vibVal}</div>
-                <div style={{ fontWeight: 600 }}>BMP280: {pressVal} · {tempVal}</div>
                 <div style={{ marginTop: 4, fontWeight: 700, color: state === 'CRITICAL' ? '#c0392b' : state === 'WATCH' ? '#d4a017' : '#27ae60' }}>
-                  Jetson Status: {state}
+                  Status: {state}
                 </div>
               </div>
             </Popup>
           </Marker>
         </MapContainer>
-        {/* Attribution */}
+        {/* Unobtrusive attribution */}
         <div style={{
           position: 'absolute', bottom: 2, right: 4, zIndex: 1000,
-          fontFamily: 'sans-serif', fontSize: 9, color: '#5A7592', pointerEvents: 'none',
+          fontFamily: 'sans-serif', fontSize: 9, color: '#5A7592', pointerEvents: 'none'
         }}>
           © OpenStreetMap contributors
         </div>
@@ -988,48 +955,34 @@ function MapCard({ state, latestData }) {
   )
 }
 
-// ─── Main App ─────────────────────────────────────────────────────────────────
-
 export default function App() {
   const [systemState, setSystemState] = useState('NORMAL')
   const [connected, setConnected] = useState(false)
   const [vibData, setVibData] = useState([])
   const [acoData, setAcoData] = useState([])
   const [envData, setEnvData] = useState([])
-  const [strData, setStrData] = useState([])
-  const [logEntries, setLogEntries] = useState([
-    {
-      id: 1,
-      ts: nowStr(),
-      msg: 'Sentinel dashboard initialized. Connecting to Jetson WebSocket...',
-      level: 'info',
-    },
-  ])
+  const [logEntries, setLogEntries] = useState([])
   const [camTs, setCamTs] = useState(nowStr)
   const [manualOverride, setManualOverride] = useState(false)
   const [lastUpdateAgo, setLastUpdateAgo] = useState(null)
-  const [riskScore, setRiskScore] = useState(0.0)
-  const [riskLabel, setRiskLabel] = useState('NORMAL')
-  const [uptime, setUptime] = useState('—')
+  const [riskScore, setRiskScore] = useState('0.00')
+  const [riskLabel, setRiskLabel] = useState('LOW')
+  const [serverStart, setServerStart] = useState(null)
+  const [uptimeStr, setUptimeStr] = useState('—')
   const [camConnected, setCamConnected] = useState(false)
-  const [latestTelemetry, setLatestTelemetry] = useState(null)
 
   // ─── WebSocket hook (primary data source) ─────────────────────────────────
   const { wsConnected, wsFailed, latestData: wsData, dataSource } = useSentinelSocket()
+
+  const stateRef = useRef('NORMAL')
+  useEffect(() => { stateRef.current = systemState }, [systemState])
 
   const manualOverrideRef = useRef(false)
   useEffect(() => { manualOverrideRef.current = manualOverride }, [manualOverride])
 
   const lastFetchRef = useRef(0)
 
-  const addLog = useCallback((msg, level = 'info') => {
-    setLogEntries((prev) => [
-      ...prev.slice(-149),
-      { id: ++_logId, ts: nowStr(), msg, level },
-    ])
-  }, [])
-
-  // Staleness check — every 1s, check if last successful telemetry was >5s ago
+  // Staleness check — every 1s, check if last successful fetch was >5s ago
   useEffect(() => {
     const t = setInterval(() => {
       if (lastFetchRef.current === 0) return
@@ -1038,56 +991,66 @@ export default function App() {
         setConnected(false)
         setLastUpdateAgo(elapsed)
       } else {
-        setConnected(true)
         setLastUpdateAgo(null)
       }
     }, 1000)
     return () => clearInterval(t)
   }, [])
 
-  // ─── Shared function: apply telemetry from WS or REST fallback ─────────────
+  const addLog = useCallback((msg, level) => {
+    setLogEntries((prev) => [...prev.slice(-149), { id: ++_logId, ts: nowStr(), msg, level }])
+  }, [])
+
+  // ─── Shared function: apply a telemetry data object to all chart/state vars ─
   const applyTelemetry = useCallback((data) => {
-    if (!data) return
     const t = tsFor(new Date(data.timestamp))
 
     lastFetchRef.current = Date.now()
     setConnected(true)
     setLastUpdateAgo(null)
     setCamConnected(true)
-    setLatestTelemetry(data)
 
-    if (data.risk_score !== undefined) setRiskScore(data.risk_score)
+    if (data.risk_score) setRiskScore(String(data.risk_score))
     if (data.risk_label) setRiskLabel(data.risk_label)
-    if (data.uptime) setUptime(data.uptime)
+    if (data.server_start) setServerStart(data.server_start)
 
-    // Authoritative status from Jetson risk engine
-    if (!manualOverrideRef.current && data.status) {
+    if (!manualOverrideRef.current) {
       setSystemState(data.status)
     }
 
-    // Vibration chart (LIS3DH primary magnitude, ADXL345 secondary magnitude)
     setVibData((prev) => [
       ...prev.slice(-(MAX_PTS - 1)),
-      {
-        t,
-        v: Number(data.vibration ?? 0),
-        v2: Number(data.adxl345?.magnitude_g ?? 0),
-      },
+      { t, v: Number(data.vibration) },
     ])
 
-    // Environmental chart (BMP280 pressure & temperature)
+    setAcoData((prev) => [
+      ...prev.slice(-(MAX_PTS - 1)),
+      { t, v: Number(data.acoustic) },
+    ])
+
     setEnvData((prev) => [
       ...prev.slice(-(MAX_PTS - 1)),
       {
         t,
-        v: Number(data.pressure ?? 0),
-        v2: Number(data.temperature ?? 0),
+        v: Number(data.pressure),
+        v2: Number(data.temperature),
       },
     ])
-
-    // Structural strain & Acoustic are not streamed by Jetson API — do not fabricate fake data
-    // (charts will display clear unavailable state)
   }, [])
+
+  // ─── Dynamic Uptime Calculator ───────────────────────────────────────────────
+  useEffect(() => {
+    if (!serverStart) return
+    const calcUptime = () => {
+      const ms = Date.now() - serverStart
+      const d = Math.floor(ms / 86400000)
+      const h = Math.floor((ms % 86400000) / 3600000)
+      setUptimeStr(`${d}d ${h}h`)
+    }
+    calcUptime() // run immediately
+    const interval = setInterval(calcUptime, 60000) // update every minute
+    return () => clearInterval(interval)
+  }, [serverStart])
 
   // ─── WebSocket data processor (primary data path) ──────────────────────────
   useEffect(() => {
@@ -1096,43 +1059,36 @@ export default function App() {
     }
   }, [wsData, applyTelemetry])
 
-  // Log WebSocket connection events
-  const wsConnectedPrev = useRef(false)
-  useEffect(() => {
-    if (wsConnected && !wsConnectedPrev.current) {
-      addLog('Connected to Jetson telemetry stream via WebSocket (ws://192.168.50.2:8000/ws)', 'info')
-    } else if (!wsConnected && wsConnectedPrev.current) {
-      addLog('Disconnected from Jetson WebSocket', 'warn')
-    }
-    wsConnectedPrev.current = wsConnected
-  }, [wsConnected, addLog])
-
   // ─── REST polling fallback (activates only when WebSocket has failed) ──────
   useEffect(() => {
+    // If WS is connected or still trying to connect, don't start polling
     if (!wsFailed) return
 
-    addLog('WebSocket unavailable — activating REST polling fallback (http://192.168.50.2:8000/api/sensors/latest)', 'warn')
+    console.log('[Sentinel] WebSocket unavailable — activating REST polling fallback')
 
     const fetchTelemetry = async () => {
       try {
-        const response = await fetch(`${JETSON_API_URL}/api/sensors/latest`)
+        const response = await fetch('http://localhost:5000/api/telemetry')
+
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+          throw new Error('Failed to fetch telemetry')
         }
-        const raw = await response.json()
-        const normalized = normalizeTelemetry(raw)
-        applyTelemetry(normalized)
+
+        const data = await response.json()
+        applyTelemetry(data)
       } catch (error) {
-        console.error('[Sentinel REST] Telemetry fetch failed:', error)
+        console.error('Telemetry fetch failed:', error)
         setConnected(false)
         setCamConnected(false)
       }
     }
 
     fetchTelemetry()
-    const interval = setInterval(fetchTelemetry, 1500)
+
+    const interval = setInterval(fetchTelemetry, 2000)
+
     return () => clearInterval(interval)
-  }, [wsFailed, applyTelemetry, addLog])
+  }, [wsFailed, applyTelemetry])
 
   // Camera timestamp — every 30 s
   useEffect(() => {
@@ -1144,40 +1100,66 @@ export default function App() {
   const prevStateRef = useRef(systemState)
   useEffect(() => {
     if (prevStateRef.current !== systemState) {
-      const level = systemState === 'NORMAL' ? 'info' : systemState === 'WATCH' ? 'warn' : 'critical'
       addLog(
-        `Jetson State: ${prevStateRef.current} → ${systemState}${latestTelemetry?.risk_score != null ? ` (Anomaly Score: ${latestTelemetry.risk_score.toFixed(3)})` : ''}`,
-        level,
+        `System state changed: ${prevStateRef.current} → ${systemState}`,
+        systemState === 'NORMAL' ? 'info' : systemState === 'WATCH' ? 'warn' : 'critical',
       )
       prevStateRef.current = systemState
     }
-  }, [systemState, addLog, latestTelemetry])
+  }, [systemState, addLog])
 
-  // Alert handler
+  // Fetch event history from backend
+  useEffect(() => {
+    const fetchEvents = async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/events')
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch events')
+        }
+
+        const data = await response.json()
+
+        const logs = data.map((item, index) =>
+          createLogFromTelemetry(item, index + 1)
+        )
+
+        setLogEntries(logs)
+      } catch (error) {
+        console.error('Events fetch failed:', error)
+      }
+    }
+
+    fetchEvents()
+
+    const interval = setInterval(fetchEvents, 2000)
+
+    return () => clearInterval(interval)
+  }, [])
+
   const handleSendAlert = useCallback(async () => {
     try {
-      const response = await fetch(`${JETSON_API_URL}/api/test-alert`, {
+      const response = await fetch('http://localhost:5000/api/test-alert', {
         method: 'POST',
       })
-      if (!response.ok) {
-        throw new Error(`Endpoint returned HTTP ${response.status}`)
-      }
       const result = await response.json()
+      
       if (result.success) {
-        addLog(result.message || 'Test alert SMS dispatched successfully', 'warn')
+        addLog(result.message, 'warn')
         return true
       } else {
-        addLog(result.message || 'Alert dispatch returned failure', 'critical')
+        addLog(result.message || 'Alert dispatch failed', 'critical')
         return false
       }
     } catch (error) {
-      addLog(`Alert dispatch unavailable on Jetson API: ${error.message}`, 'warn')
+      addLog('Alert dispatch failed', 'critical')
       return false
     }
   }, [addLog])
 
   // Latest values for chart headers
   const lastVib = vibData[vibData.length - 1]?.v
+  const lastAco = acoData[acoData.length - 1]?.v
   const lastEnv = envData[envData.length - 1]
 
   return (
@@ -1185,14 +1167,7 @@ export default function App() {
       display: 'flex', flexDirection: 'column', height: '100vh',
       background: C.bg, overflow: 'hidden',
     }}>
-      <TopBar
-        state={systemState}
-        nodeId="MN-04"
-        connected={connected}
-        lastUpdateAgo={lastUpdateAgo}
-        manualOverride={manualOverride}
-        dataSource={dataSource}
-      />
+      <TopBar state={systemState} nodeId="MN-04" connected={connected} lastUpdateAgo={lastUpdateAgo} manualOverride={manualOverride} dataSource={dataSource} />
 
       <main style={{
         flex: 1, display: 'grid',
@@ -1200,14 +1175,8 @@ export default function App() {
         gap: 9, padding: 9, overflow: 'hidden',
         minHeight: 0,
       }}>
-        {/* Left — Status card */}
-        <StatusCard
-          state={systemState}
-          onStateChange={setSystemState}
-          manualOverride={manualOverride}
-          onSetOverride={setManualOverride}
-          latestData={latestTelemetry}
-        />
+        {/* Left \u2014 Status card */}
+        <StatusCard state={systemState} onStateChange={setSystemState} manualOverride={manualOverride} onSetOverride={setManualOverride} />
 
         {/* Center — 2×3 grid (charts + map) */}
         <div style={{
@@ -1216,63 +1185,41 @@ export default function App() {
           gridTemplateRows: '1fr 1fr 1fr',
           gap: 9, minHeight: 0,
         }}>
-          {/* Ground Vibration (LIS3DH + ADXL345) */}
           <ChartCard
             title="Ground Vibration"
             data={vibData}
-            lines={[
-              { key: 'v', color: '#3A85D0', name: 'LIS3DH (G)', yAxisId: 'left' },
-              { key: 'v2', color: '#5DADE2', name: 'ADXL345 (G)', yAxisId: 'left' },
-            ]}
-            unit="Accelerometers (G)"
-            yDomain={[0, 'auto']}
-            latestValue={lastVib !== undefined ? `${lastVib.toFixed(4)} G` : '—'}
-            yAxisWidth={42}
+            lines={[{ key: 'v', color: '#3A85D0', name: 'G-force', yAxisId: 'left' }]}
+            unit="Accelerometer (G)"
+            yDomain={[0, 0.30]}
+            latestValue={lastVib !== undefined ? `${lastVib.toFixed(4)} G` : '\u2014'}
           />
-
-          {/* Acoustic Signature — marked unavailable because not streamed */}
           <ChartCard
             title="Acoustic Signature"
             data={acoData}
             lines={[{ key: 'v', color: '#9B59B6', name: 'dB SPL', yAxisId: 'left' }]}
-            unit="Microphone (INMP441) — Not Streamed"
-            yDomain={[0, 100]}
-            latestValue="Unavailable"
-            isUnavailable={true}
+            unit="Microphone (dB SPL)"
+            yDomain={[35, 100]}
+            latestValue={lastAco !== undefined ? `${lastAco} dB` : '\u2014'}
           />
-
-          {/* Environmental Trend (BMP280 Pressure + Temperature) */}
           <ChartCard
-            title="Environmental Trend (BMP280)"
+            title="Environmental Trend"
             data={envData}
             lines={[
-              { key: 'v', color: '#2ECC71', name: 'hPa', yAxisId: 'left' },
-              { key: 'v2', color: '#F1C40F', name: '°C', yAxisId: 'right' },
+              { key: 'v', color: '#2ECC71', name: 'mbar', yAxisId: 'left' },
+              { key: 'v2', color: '#F1C40F', name: '\u00B0C', yAxisId: 'right' },
             ]}
-            unit="Pressure (hPa) · Temperature (°C)"
-            yDomain={['auto', 'auto']}
-            y2Domain={['auto', 'auto']}
-            latestValue={lastEnv ? `${lastEnv.v.toFixed(1)} hPa · ${lastEnv.v2.toFixed(1)}°C` : '—'}
-            yAxisWidth={48}
-            y2AxisWidth={34}
+            unit="Barometer & Temp"
+            yDomain={[1005, 1025]}
+            y2Domain={[10, 40]}
+            latestValue={lastEnv !== undefined ? `${lastEnv.v} mbar \u00B7 ${lastEnv.v2}\u00B0C` : '\u2014'}
+            yAxisWidth={50}
+            y2AxisWidth={26}
+            style={{ gridColumn: '1 / -1' }}
           />
-
-          {/* Structural Strain — marked unavailable because not connected */}
-          <ChartCard
-            title="Structural Strain"
-            data={strData}
-            lines={[{ key: 'v', color: '#D35400', name: 'kgF', yAxisId: 'left' }]}
-            unit="Load Cell (kgF) — Sensor Offline"
-            yDomain={[0, 1000]}
-            latestValue="Unavailable"
-            isUnavailable={true}
-          />
-
-          {/* GIS Map */}
-          <MapCard state={systemState} latestData={latestTelemetry} />
+          <MapCard state={systemState} />
         </div>
 
-        {/* Right — Event log */}
+        {/* Right \u2014 Event log */}
         <EventLog entries={logEntries} />
       </main>
 
@@ -1281,7 +1228,7 @@ export default function App() {
         onSendAlert={handleSendAlert}
         riskScore={riskScore}
         riskLabel={riskLabel}
-        uptime={uptime}
+        uptime={uptimeStr}
         camConnected={camConnected}
       />
     </div>

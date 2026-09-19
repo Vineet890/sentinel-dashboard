@@ -19,7 +19,6 @@ function generateRow() {
         acoustic: (40 + Math.random() * 30).toFixed(1),
         pressure: (1010 + Math.random() * 10).toFixed(1),
         temperature: (18 + Math.random() * 8).toFixed(1),
-        strain: (800 + Math.random() * 150).toFixed(1),
         status: randomStatus()
     };
 }
@@ -30,7 +29,7 @@ const cameraPath = path.join(__dirname, 'latest_capture.jpg');
 if (!fs.existsSync(filePath)) {
     fs.writeFileSync(
         filePath,
-        "timestamp,vibration,acoustic,pressure,temperature,strain,status\n"
+        "timestamp,vibration,acoustic,pressure,temperature,status\n"
     );
 }
 
@@ -78,7 +77,7 @@ setInterval(() => {
     const row = generateRow();
 
     const line =
-        `${row.timestamp},${row.vibration},${row.acoustic},${row.pressure},${row.temperature},${row.strain},${row.status}\n`;
+        `${row.timestamp},${row.vibration},${row.acoustic},${row.pressure},${row.temperature},${row.status}\n`;
 
     fs.appendFileSync(filePath, line);
 
