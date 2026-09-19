@@ -103,7 +103,15 @@ app.get('/api/events', (req, res) => {
                 return obj;
             });
 
-        res.json(rows.reverse());
+        // Combine telemetry and SMS logs, sort by timestamp
+        let combined = [...rows, ...autoSmsLogs];
+        combined.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+        
+        // Take last 20
+        combined = combined.slice(-20);
+
+        // Reverse to match the existing API behavior (newest first)
+        res.json(combined.reverse());
     } catch (err) {
         res.status(500).json({ error: 'Failed to read events' });
     }
@@ -127,23 +135,23 @@ app.get('/api/camera', (req, res) => {
 // Load env variables
 require('dotenv').config();
 
-// ─── SMS Alert Gateway ─────────────────────────────────────────────────────────
+const autoSmsLogs = [];
 
-app.post('/api/test-alert', async (req, res) => {
+async function sendSMSAlert(message) {
+    const apiKey = process.env.SMS_API_KEY;
+    const phone = process.env.ALERT_PHONE;
+
+    if (!apiKey || !phone) {
+        console.error('SMS Gateway missing config: SMS_API_KEY or ALERT_PHONE not set in backend .env');
+        return { success: false, message: 'SMS config missing on server' };
+    }
+
+    const payload = {
+        phoneNumber: phone,
+        message: message
+    };
+
     try {
-        const apiKey = process.env.SMS_API_KEY;
-        const phone = process.env.ALERT_PHONE;
-
-        if (!apiKey || !phone) {
-            console.error('SMS Gateway missing config: SMS_API_KEY or ALERT_PHONE not set in backend .env');
-            return res.json({ success: false, message: 'SMS config missing on server' });
-        }
-
-        const payload = {
-            phoneNumber: phone,
-            message: "SENTINEL ALERT: Critical subsidence risk detected. Immediate inspection required."
-        };
-
         const response = await fetch('https://us-central1-sms-gateway-ae7e1.cloudfunctions.net/api_sms_send', {
             method: 'POST',
             headers: {
@@ -157,26 +165,101 @@ app.post('/api/test-alert', async (req, res) => {
 
         if (response.ok) {
             console.log('SMS Gateway Success:', data);
-            return res.json({
+            return {
                 success: true,
                 message: 'SMS queued successfully',
                 smsId: data.smsId || 'unknown'
-            });
+            };
         } else {
             console.error('SMS Gateway API Error:', response.status, data);
-            return res.json({
+            return {
                 success: false,
                 message: 'Failed to send SMS'
-            });
+            };
         }
     } catch (error) {
         console.error('SMS Request failed:', error.message);
-        return res.json({
+        return {
             success: false,
             message: 'Failed to send SMS'
-        });
+        };
     }
+}
+
+// ─── SMS Alert Gateway ─────────────────────────────────────────────────────────
+
+app.post('/api/test-alert', async (req, res) => {
+    // Record the manual action in the persistent log array so it isn't erased
+    autoSmsLogs.push({
+        type: 'sms',
+        timestamp: new Date().toISOString(),
+        msg: 'MANUAL TEST — SMS dispatched to control room',
+        level: 'info'
+    });
+
+    const result = await sendSMSAlert("SENTINEL ALERT: CRITICAL subsidence risk detected at site Alpha-3, Dhanbad. Immediate inspection required.");
+    
+    // Log the API result
+    autoSmsLogs.push({
+        type: 'sms',
+        timestamp: new Date().toISOString(),
+        msg: result.message || (result.success ? 'MANUAL TEST — SMS queued successfully' : 'MANUAL TEST — SMS dispatch failed'),
+        level: result.success ? 'warn' : 'critical'
+    });
+
+    res.json(result);
 });
+
+// ─── Automatic State Monitor ───────────────────────────────────────────────────
+let lastMonitoredState = 'NORMAL';
+
+setInterval(async () => {
+    try {
+        if (!fs.existsSync(csvPath)) return;
+        const row = readLatestRow();
+        if (!row || !row.status) return;
+
+        const currentState = row.status;
+
+        // Edge trigger: Only trigger ONCE when transitioning INTO CRITICAL
+        if (currentState === 'CRITICAL' && lastMonitoredState !== 'CRITICAL') {
+            console.log("CRITICAL state detected! Dispatching automatic SMS...");
+            lastMonitoredState = 'CRITICAL';
+            
+            // Add a preliminary log
+            autoSmsLogs.push({
+                type: 'sms',
+                timestamp: new Date().toISOString(),
+                msg: 'CRITICAL ALERT — SMS dispatched to control room',
+                level: 'critical'
+            });
+
+            const msg = "SENTINEL ALERT: CRITICAL subsidence risk detected at site Alpha-3, Dhanbad. Immediate inspection required.";
+            const result = await sendSMSAlert(msg);
+            
+            if (result.success) {
+                autoSmsLogs.push({
+                    type: 'sms',
+                    timestamp: new Date().toISOString(),
+                    msg: 'CRITICAL ALERT — SMS queued successfully',
+                    level: 'warn' 
+                });
+            } else {
+                autoSmsLogs.push({
+                    type: 'sms',
+                    timestamp: new Date().toISOString(),
+                    msg: 'CRITICAL ALERT — SMS dispatch failed',
+                    level: 'critical'
+                });
+            }
+        } else if (currentState !== 'CRITICAL') {
+            // Re-arm when the state drops back below CRITICAL
+            lastMonitoredState = currentState;
+        }
+    } catch (e) {
+        console.error("Monitor loop error:", e.message);
+    }
+}, 2000); // Check every 2 seconds
 
 app.listen(PORT, () => {
     console.log(`Backend running on http://localhost:${PORT}`);

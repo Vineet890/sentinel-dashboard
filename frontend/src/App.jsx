@@ -792,6 +792,15 @@ function BottomBar({ camTimestamp, onSendAlert, riskScore, riskLabel, uptime, ca
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 function createLogFromTelemetry(data, id) {
+  if (data.type === 'sms') {
+    return {
+      id,
+      ts: tsFor(new Date(data.timestamp)),
+      msg: data.msg,
+      level: data.level,
+    }
+  }
+
   const time = tsFor(new Date(data.timestamp))
 
   if (data.status === 'CRITICAL') {

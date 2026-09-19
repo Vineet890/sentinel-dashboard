@@ -1,143 +1,121 @@
 # Sentinel
 
-**Real-time mine subsidence early-warning system** — a multi-sensor monitoring dashboard built for underground coal and mineral mines. Designed to detect precursors to ground collapse through continuous analysis of vibration, acoustic, pressure, temperature, and structural strain data, and to trigger GSM-based emergency alerts when thresholds are breached.
+Real-time mine subsidence early-warning system — a multi-sensor monitoring dashboard built for underground coal and mineral mines. Designed to detect precursors to ground collapse through continuous analysis of vibration, acoustic, pressure, temperature, and structural strain data, and to automatically trigger SMS emergency alerts when thresholds are breached.
 
-Built for **Smart India Hackathon 2026** under the problem statement for intelligent mine safety infrastructure.
-
----
+Built for Smart India Hackathon 2026 under the problem statement for intelligent mine safety infrastructure.
 
 ## The Problem
-
 Mine subsidence — the gradual or sudden sinking of ground above an underground excavation — is one of the leading causes of catastrophic mining disasters globally. In India, where a significant portion of mining activity involves aging underground infrastructure, real-time anomaly detection is largely absent at the site level. Operators rely on periodic manual inspections, which create dangerous blind spots between readings.
 
-**Sentinel** addresses this by deploying a low-cost, offline-capable sensor node directly at the mining site that continuously monitors geological precursors and surfaces the data to operators in a readable, actionable dashboard — with no dependence on cloud connectivity.
-
----
+Sentinel addresses this by deploying a low-cost sensor node directly at the mining site that continuously monitors geological precursors and surfaces the data to operators in a readable, actionable dashboard.
 
 ## System Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                        SITE NODE (MN-04)                         │
-│                                                                  │
-│   ┌─────────────────┐      ┌──────────────────┐                 │
-│   │  Sensor Array   │      │  Jetson Nano      │                 │
-│   │                 │─────▶│  (Edge Compute)   │                 │
-│   │  · MPU-6050     │ I²C  │                   │                 │
-│   │  · Sound sensor │      │  · Reads sensors  │                 │
-│   │  · BMP180       │      │  · Runs anomaly   │                 │
-│   │  · Thermistor   │      │    detection      │                 │
-│   │  · Load cell    │      │  · Writes CSV     │                 │
-│   └─────────────────┘      └────────┬─────────┘                 │
-│                                      │ sensor_log.csv             │
-│                             ┌────────▼─────────┐                 │
-│                             │  Express API     │                 │
-│                             │  :5000           │                 │
-│                             │                  │                 │
-│                             │  /api/telemetry  │                 │
-│                             │  /api/events     │                 │
-│                             │  /api/test-alert │                 │
-│                             └────────┬─────────┘                 │
-│                                      │ REST (localhost)           │
-│                             ┌────────▼─────────┐                 │
-│                             │  React Dashboard │                 │
-│                             │  :8443           │                 │
-│                             └──────────────────┘                 │
-│                                                                  │
-│                    ┌──────────────────┐                          │
-│                    │  SIM900A Module  │ ◀── triggered on CRITICAL │
-│                    │  (GSM Alert)     │                          │
-│                    └──────────────────┘                          │
-└──────────────────────────────────────────────────────────────────┘
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                        SITE NODE (MN-04)                        │
+│                                                                 │
+│  ┌─────────────────┐       ┌───────────────────────────────┐    │
+│  │  Sensor Array   │       │   Backend / Edge Compute      │    │
+│  │ ────────────────│       │ ──────────────────────────────│    │
+│  │ • MPU-6050      │──I²C─▶│ • ML Anomaly Detection        │    │
+│  │ • Sound sensor  │       │ • WebSocket Stream (Primary)  │    │
+│  │ • BMP180        │       │ • REST API (Fallback)         │    │
+│  │ • Load cell     │       │ • Automatic State Monitor     │──┐ │
+│  └─────────────────┘       └────────┬──────────────────────┘  │ │
+└─────────────────────────────────────┼─────────────────────────┼─┘
+                                      │                         │
+                    WebSocket / REST  │                         │ HTTP POST
+                                      ▼                         ▼
+                          ┌───────────────────┐      ┌──────────────────────────┐
+                          │  React Dashboard  │      │    SMS Gateway Master    │
+                          │  (Sentinel UI)    │      │ (Cloud Function API)     │
+                          └───────────────────┘      └──────────┬───────────────┘
+                                                                │
+                                                                ▼
+                                                          Emergency SMS
 ```
 
-The entire stack runs **locally on the Jetson Nano** — there is no cloud dependency, no internet requirement, and no external API calls. The system is designed to remain operational in environments with zero connectivity.
-
----
+The core telemetry stack runs locally on the edge hardware (Jetson Nano) to ensure dashboard operationality even in disrupted network environments. Emergency alerts securely interface with a Cloud Function SMS Gateway.
 
 ## Features
 
-| Feature | Description |
-|---|---|
-| **Live Sensor Charts** | 4 real-time scrolling charts — ground vibration (G), acoustic signature (dB), environmental trend (mbar · °C), structural strain (kgF) — updated every 2 seconds |
-| **3-State Alert System** | NORMAL / WATCH / CRITICAL state machine driven by the sensor anomaly model, with distinct visual and glow indicators per state |
-| **Connection Loss Detection** | Automatically detects stale data (>5s without update) and shows an "Offline · Xs ago" indicator in the top bar |
-| **Manual Override Mode** | Operators can force-lock the dashboard to a specific state for demo or inspection purposes; API updates are suppressed until "Resume Live" is clicked |
-| **Event Log** | Scrolling timestamped log of sensor state transitions, sourced from the backend CSV history |
-| **GSM Test Alert** | One-click button to trigger an SMS dispatch to the on-call response team (mock in current build; wired to SIM900A AT commands in hardware deployment) |
-| **Fully Offline** | No external CDN, no cloud API, no Unsplash or remote image dependencies — runs air-gapped |
-
----
+* **Live Sensor Charts**: 4 real-time scrolling charts (ground vibration, acoustic signature, environmental trend, structural strain) updated instantly.
+* **3-State Alert System**: `NORMAL` / `WATCH` / `CRITICAL` state machine driven by the sensor anomaly model, with distinct visual and glow indicators.
+* **Automatic & Manual SMS Alerts**: Edge-triggered automatic SMS dispatch upon entering the `CRITICAL` state, preventing duplicate spam. Includes a manual "Test Alert" dashboard override for drills.
+* **GIS Map Panel**: Integrated Leaflet + OpenStreetMap panel styled to match the dark dashboard theme for precise site geolocation (fully open-source, no billing APIs required).
+* **Dual-Transport Telemetry**: Primary low-latency WebSocket connection with an automatic, seamless fallback to REST polling if the socket connection drops.
+* **Connection Loss Detection**: Automatically detects stale data and displays an "Offline" indicator.
+* **Event Log**: Scrolling timestamped log of sensor state transitions and SMS dispatch events natively synchronized between the backend and frontend.
 
 ## Quick Start
+*Prerequisites: Node.js ≥ 18, pnpm (or npm)*
 
-> **Prerequisites:** Node.js ≥ 18, pnpm (or npm)
+**1 — Configure Environment**
+Create a `.env` file in the `backend/` directory:
+```env
+SMS_API_KEY=your_gateway_api_key
+ALERT_PHONE=+1234567890
+```
 
-### 1 — Start the mock sensor pipeline
+**2 — Start the mock sensor pipeline**
 ```bash
 cd backend
 node mock_data/generate_mock.js
 ```
-Writes a new sensor row to `sensor_log.csv` every 2 seconds, simulating the Jetson Nano data pipeline.
+*Writes a new sensor row to `sensor_log.csv` every 2 seconds, simulating the physical hardware.*
 
-### 2 — Start the backend API
+**3 — Start the backend API & Alert Monitor**
 ```bash
 cd backend
 node server.js
-# → Backend running on http://localhost:5000
 ```
+*Backend running on http://localhost:5000*
 
-### 3 — Start the dashboard
+**4 — Start the dashboard**
 ```bash
 cd frontend
 pnpm install
 pnpm dev
-# → Dashboard at http://localhost:8443
 ```
-
----
+*Dashboard running on http://localhost:8443*
 
 ## Repository Structure
-
-```
+```text
 sentinel-dashboard/
 ├── backend/
-│   ├── server.js               # Express API server
+│   ├── server.js              # Express API, SMS trigger, and REST fallback
+│   ├── .env                   # Secrets (API Key, Phone Number)
 │   └── mock_data/
-│       ├── generate_mock.js    # Simulated sensor data writer
-│       └── sensor_log.csv      # Live data store (gitignored)
+│       ├── generate_mock.js   # Simulated sensor data writer
+│       └── sensor_log.csv     # Live data store
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx             # Full dashboard UI (React)
-│   │   ├── main.jsx            # Entry point
-│   │   └── index.css           # Global styles + animations
+│   │   ├── hooks/
+│   │   │   └── useSentinelSocket.js # WebSocket & REST fallback logic
+│   │   ├── App.jsx            # Full dashboard UI (React)
+│   │   ├── main.jsx           # Entry point
+│   │   └── index.css          # Global styles + animations
 │   ├── index.html
 │   ├── vite.config.js
 │   └── package.json
 └── README.md
 ```
 
----
-
 ## API Reference
 
 | Method | Endpoint | Response |
-|---|---|---|
-| `GET` | `/api/telemetry` | Latest sensor reading as JSON object |
-| `GET` | `/api/events` | Last 20 sensor readings as JSON array (newest first) |
-| `GET` | `/api/camera` | Latest captured JPEG frame from the Jetson camera |
-| `POST` | `/api/test-alert` | Triggers GSM alert; returns `{ success: true, message: "..." }` |
+| :--- | :--- | :--- |
+| `GET` | `/api/telemetry` | Latest sensor reading as a JSON object (used in fallback mode) |
+| `GET` | `/api/events` | Last 20 combined sensor/SMS events as JSON array (newest first) |
+| `GET` | `/api/camera` | Latest captured JPEG frame from the edge camera |
+| `POST` | `/api/test-alert`| Triggers manual SMS alert; returns `{ success, message, smsId }` |
 
-### Sensor Data Schema
-
-The backend reads from a single CSV file. This is the canonical data contract between the sensor firmware and the dashboard — both sides must conform to this format exactly.
-
-```
-timestamp,vibration,acoustic,pressure,temperature,strain,status
-```
+## Sensor Data Schema
+The canonical data contract between the sensor firmware and the dashboard via `sensor_log.csv`.
 
 | Field | Type | Unit | Notes |
-|---|---|---|---|
+| :--- | :--- | :--- | :--- |
 | `timestamp` | ISO 8601 string | — | UTC, millisecond precision |
 | `vibration` | float | G-force | Peak ground acceleration |
 | `acoustic` | float | dB SPL | Ambient acoustic level |
@@ -146,55 +124,18 @@ timestamp,vibration,acoustic,pressure,temperature,strain,status
 | `strain` | float | kgF | Load cell reading |
 | `status` | string | — | `NORMAL` · `WATCH` · `CRITICAL` — output of the anomaly model |
 
-The `status` field is the output of the ML anomaly detection stage running on the Jetson, **not** a raw threshold comparison. Raw sensor values trigger a WATCH or CRITICAL state only after the model confirms a multi-sensor anomaly pattern — reducing false positives from single-sensor noise.
-
----
+*Note: The `status` field is the output of the ML anomaly detection stage running on the Jetson, not a raw threshold comparison.*
 
 ## Hardware Integration (Jetson Nano)
-
-When the physical sensor pipeline is ready, the swap is a single-line change:
-
-1. The sensor acquisition script writes rows to `backend/mock_data/sensor_log.csv` using the schema above
-2. To use a different file path, update `csvPath` in [`backend/server.js`](backend/server.js) (line 12)
-3. Stop `generate_mock.js` — it is no longer needed
-4. The API server, dashboard, and alert system continue working with no other changes
-
-### Hardware Components
-
-| Component | Purpose |
-|---|---|
-| NVIDIA Jetson Nano | Edge compute — sensor acquisition, anomaly detection, API server |
-| MPU-6050 | 3-axis accelerometer (ground vibration) |
-| MEMS microphone | Acoustic signature monitoring |
-| BMP180 | Barometric pressure + temperature |
-| HX711 + load cell | Structural strain measurement |
-| SIM900A GSM module | SMS emergency alerts |
-
----
+When deploying the physical sensor pipeline:
+1. The sensor acquisition script writes rows directly to `backend/mock_data/sensor_log.csv`.
+2. To use a different file path, update `csvPath` in `backend/server.js`.
+3. Stop `generate_mock.js` — it is no longer needed.
+4. The API server, dashboard, and automatic SMS monitor will continue operating seamlessly.
 
 ## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Frontend | React 19 · Vite 8 · Recharts 3 · Tailwind CSS 4 |
-| Backend | Node.js · Express 5 |
-| Data transport | REST over localhost (LAN-only, no external network) |
-| Data storage | Append-only CSV log |
-| Edge hardware | NVIDIA Jetson Nano |
-
----
-
-## Pre-Deployment Checklist (Jetson Nano)
-
-Before deploying to an offline Jetson Nano:
-
-- [ ] **Self-host fonts** — download Barlow Condensed, IBM Plex Sans, and JetBrains Mono locally; update the `@import` in `frontend/src/index.css` to point to local paths
-- [x] **Wire GSM alert** — connected `POST /api/test-alert` to `send_sms.py` via `child_process`
-- [x] **Camera feed** — added `/api/camera` endpoint to serve the latest Jetson JPEG frame
-- [x] **Dynamic risk engine** — risk and uptime are now dynamically computed from the live backend stream
-
----
-
-## License
-
-MIT
+* **Frontend:** React 19 · Vite 8 · Recharts 3 · Leaflet (OSM) · Tailwind CSS 4
+* **Backend:** Node.js · Express 5
+* **Data Transport:** WebSockets (Primary) · REST (Fallback)
+* **Alerting:** Cloud Functions SMS Gateway Master
+* **Edge Hardware:** NVIDIA Jetson Nano
