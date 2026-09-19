@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 
 // ─── Data normalizer ──────────────────────────────────────────────────────────
 // Converts whatever the Jetson FastAPI sends into the flat shape the dashboard
-// already expects: { timestamp, vibration, acoustic, pressure, temperature, strain, status }
+// already expects: { timestamp, vibration, acoustic, pressure, temperature, status }
 //
 // Handles two formats:
 //   1. Flat: { vibration: 0.12, acoustic: 54, ... }  (same as REST/CSV)
@@ -30,7 +30,6 @@ function normalizeTelemetry(raw) {
   const lis3dh = sensors.lis3dh || sensors.accelerometer || {}
   const mic = sensors.mic || sensors.microphone || sensors.acoustic || {}
   const bmp = sensors.bmp180 || sensors.bmp280 || sensors.barometer || {}
-  const load = sensors.load_cell || sensors.strain || {}
 
   // Compute vibration magnitude from 3-axis accelerometer
   const vx = parseFloat(lis3dh.x) || 0
