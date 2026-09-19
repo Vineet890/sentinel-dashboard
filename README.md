@@ -2,7 +2,7 @@
 
 **Real-time mine subsidence early-warning system** — a multi-sensor monitoring dashboard built for underground coal and mineral mines. Designed to detect precursors to ground collapse through continuous analysis of vibration, acoustic, pressure, temperature, and structural strain data, and to trigger GSM-based emergency alerts when thresholds are breached.
 
-Built for **Smart India Hackathon 2025** under the problem statement for intelligent mine safety infrastructure.
+Built for **Smart India Hackathon 2026** under the problem statement for intelligent mine safety infrastructure.
 
 ---
 
