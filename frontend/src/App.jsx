@@ -868,7 +868,7 @@ function MapCard({ state }) {
           fontFamily: "'Barlow Condensed', sans-serif", fontSize: 11, fontWeight: 600,
           letterSpacing: '0.12em', textTransform: 'uppercase', color: C.ghost,
         }}>
-          Map unavailable — offline mode
+          Map unavailable \u2014 offline mode
         </span>
         <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: C.dim }}>
           {MINE_LOCATION.lat.toFixed(4)}°N, {MINE_LOCATION.lng.toFixed(4)}°E
@@ -1174,7 +1174,7 @@ export default function App() {
         gap: 9, padding: 9, overflow: 'hidden',
         minHeight: 0,
       }}>
-        {/* Left — Status card */}
+        {/* Left \u2014 Status card */}
         <StatusCard state={systemState} onStateChange={setSystemState} manualOverride={manualOverride} onSetOverride={setManualOverride} />
 
         {/* Center — 2×3 grid (charts + map) */}
@@ -1190,7 +1190,7 @@ export default function App() {
             lines={[{ key: 'v', color: '#3A85D0', name: 'G-force', yAxisId: 'left' }]}
             unit="Accelerometer (G)"
             yDomain={[0, 0.30]}
-            latestValue={lastVib !== undefined ? `${lastVib.toFixed(4)} G` : '—'}
+            latestValue={lastVib !== undefined ? `${lastVib.toFixed(4)} G` : '\u2014'}
           />
           <ChartCard
             title="Acoustic Signature"
@@ -1198,19 +1198,19 @@ export default function App() {
             lines={[{ key: 'v', color: '#9B59B6', name: 'dB SPL', yAxisId: 'left' }]}
             unit="Microphone (dB SPL)"
             yDomain={[35, 100]}
-            latestValue={lastAco !== undefined ? `${lastAco} dB` : '—'}
+            latestValue={lastAco !== undefined ? `${lastAco} dB` : '\u2014'}
           />
           <ChartCard
             title="Environmental Trend"
             data={envData}
             lines={[
               { key: 'v', color: '#2ECC71', name: 'mbar', yAxisId: 'left' },
-              { key: 'v2', color: '#F1C40F', name: '°C', yAxisId: 'right' },
+              { key: 'v2', color: '#F1C40F', name: '\u00B0C', yAxisId: 'right' },
             ]}
             unit="Barometer & Temp"
             yDomain={[1005, 1025]}
             y2Domain={[10, 40]}
-            latestValue={lastEnv !== undefined ? `${lastEnv.v} mbar · ${lastEnv.v2}°C` : '—'}
+            latestValue={lastEnv !== undefined ? `${lastEnv.v} mbar \u00B7 ${lastEnv.v2}\u00B0C` : '\u2014'}
             yAxisWidth={50}
             y2AxisWidth={26}
             style={{ gridColumn: '1 / -1' }}
@@ -1218,7 +1218,7 @@ export default function App() {
           <MapCard state={systemState} />
         </div>
 
-        {/* Right — Event log */}
+        {/* Right \u2014 Event log */}
         <EventLog entries={logEntries} />
       </main>
 
