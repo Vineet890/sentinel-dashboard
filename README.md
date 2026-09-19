@@ -108,12 +108,19 @@ python -m venv .venv
 # or: .venv/bin/pip install -r requirements.txt  # Linux/Mac
 ```
 
-**3 — Start the mock sensor pipeline**
+**3 — Start the data ingestion pipeline**
+If you have the physical Jetson Nano connected:
+```bash
+ml/.venv/Scripts/python ml/jetson_bridge.py      # Windows
+# or: ml/.venv/bin/python ml/jetson_bridge.py     # Linux/Mac
+```
+*Note: Ensure `VITE_DISABLE_WS=true` in `frontend/.env` to route data through the ML model.*
+
+If testing without hardware:
 ```bash
 cd backend
 node mock_data/generate_mock.js
 ```
-*Writes a new sensor row to `sensor_log.csv` every 2 seconds, with periodic anomaly injection.*
 
 **4 — Train the ML model** (first time only)
 ```bash
