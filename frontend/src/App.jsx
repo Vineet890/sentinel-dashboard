@@ -3,9 +3,9 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer,
 } from 'recharts'
-import {
-  GoogleMap, useJsApiLoader, MarkerF, InfoWindowF,
-} from '@react-google-maps/api'
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 import { useSentinelSocket } from './hooks/useSentinelSocket'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -44,21 +44,7 @@ const SITE_META = {
 // Dhanbad, Jharkhand — major coal mining region in India
 const MINE_LOCATION = { lat: 23.7957, lng: 86.4304 }
 
-const DARK_MAP_STYLES = [
-  { elementType: 'geometry', stylers: [{ color: '#0B1525' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#0B1525' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#5A7592' }] },
-  { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#1C3050' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#152130' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#1C3050' }] },
-  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#1C3050' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#060D1B' }] },
-  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#3A5270' }] },
-  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#0E1B2E' }] },
-  { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#5A7592' }] },
-  { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#0E1B2E' }] },
-  { featureType: 'landscape.natural', elementType: 'geometry', stylers: [{ color: '#0E1B2E' }] },
-]
+
 
 function nowStr() {
   return new Date().toLocaleTimeString('en-GB', { hour12: false })
@@ -832,40 +818,31 @@ function createLogFromTelemetry(data, id) {
 
 const MAP_CONTAINER = { width: '100%', height: '100%' }
 
-function MapCard({ state }) {
-  const [infoOpen, setInfoOpen] = useState(false)
-  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || ''
-  
-  const { isLoaded, loadError } = useJsApiLoader({
-    googleMapsApiKey: apiKey,
-  })
 
+
+function MapCard({ state }) {
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
   const markerColor = STATE_COLOR[state] || '#2ECC71'
 
-  // SVG marker icon colored by system state
-  const markerIcon = isLoaded ? {
-    path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 110-5 2.5 2.5 0 010 5z',
-    fillColor: markerColor,
-    fillOpacity: 1,
-    strokeColor: '#060D1B',
-    strokeWeight: 1.5,
-    scale: 1.6,
-    anchor: typeof google !== 'undefined' ? new google.maps.Point(12, 22) : undefined,
-  } : null
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true)
+    const handleOffline = () => setIsOnline(false)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
 
-  const mapOptions = {
-    styles: DARK_MAP_STYLES,
-    disableDefaultUI: true,
-    zoomControl: true,
-  }
-
-  if (!apiKey || loadError) {
+  // Offline fallback
+  if (!isOnline) {
     return (
       <div style={{
         background: C.card, borderRadius: 8,
         border: `1px solid ${C.border}`,
         display: 'flex', flexDirection: 'column', alignItems: 'center',
-        justifyContent: 'center', gap: 8, height: '100%', minHeight: 120, gridColumn: '1 / -1',
+        justifyContent: 'center', gap: 8, height: '100%', minHeight: 180, gridColumn: '1 / -1',
       }}>
         <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
           <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" stroke={C.ghost} strokeWidth="1.5" />
@@ -884,16 +861,19 @@ function MapCard({ state }) {
     )
   }
 
-  if (!isLoaded) {
-    return (
-      <div style={{
-        background: C.card, borderRadius: 8, border: `1px solid ${C.border}`,
-        display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 120, gridColumn: '1 / -1',
-      }}>
-        <span style={{ color: C.dim }}>Loading map…</span>
-      </div>
-    )
-  }
+  // Custom marker icon using L.divIcon to support dynamic colors
+  const markerHtml = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32" fill="${markerColor}" stroke="#060D1B" stroke-width="1.5">
+      <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 110-5 2.5 2.5 0 010 5z"/>
+    </svg>
+  `
+  const customIcon = L.divIcon({
+    html: markerHtml,
+    className: 'custom-leaflet-marker',
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  })
 
   return (
     <div style={{
@@ -902,7 +882,7 @@ function MapCard({ state }) {
     }}>
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '8px 14px', borderBottom: `1px solid ${C.border}`,
+        padding: '8px 14px', borderBottom: `1px solid ${C.border}`, zIndex: 10,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{
@@ -921,11 +901,20 @@ function MapCard({ state }) {
           MN-04 · {state}
         </span>
       </div>
-      <div style={{ flex: 1, minHeight: 0 }}>
-        <GoogleMap mapContainerStyle={MAP_CONTAINER} center={MINE_LOCATION} zoom={13} options={mapOptions}>
-          <MarkerF position={MINE_LOCATION} icon={markerIcon} onClick={() => setInfoOpen(true)} />
-          {infoOpen && (
-            <InfoWindowF position={MINE_LOCATION} onCloseClick={() => setInfoOpen(false)}>
+      <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+        <MapContainer 
+          center={[MINE_LOCATION.lat, MINE_LOCATION.lng]} 
+          zoom={13} 
+          style={MAP_CONTAINER}
+          zoomControl={false}
+          attributionControl={false}
+        >
+          <TileLayer
+            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
+            attribution='&copy; <a href="https://carto.com/">CartoDB</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+          />
+          <Marker position={[MINE_LOCATION.lat, MINE_LOCATION.lng]} icon={customIcon}>
+            <Popup>
               <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: '#1a1a1a', minWidth: 160 }}>
                 <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 14, fontWeight: 700 }}>MN-04 — {SITE_META.site}</div>
                 <div>Depth: {SITE_META.depth}</div>
@@ -935,9 +924,16 @@ function MapCard({ state }) {
                   Status: {state}
                 </div>
               </div>
-            </InfoWindowF>
-          )}
-        </GoogleMap>
+            </Popup>
+          </Marker>
+        </MapContainer>
+        {/* Unobtrusive attribution */}
+        <div style={{
+          position: 'absolute', bottom: 2, right: 4, zIndex: 1000,
+          fontFamily: 'sans-serif', fontSize: 9, color: '#5A7592', pointerEvents: 'none'
+        }}>
+          © OpenStreetMap © CartoDB
+        </div>
       </div>
     </div>
   )

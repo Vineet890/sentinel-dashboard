@@ -9,9 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@react-google-maps/api": "^2.20.8",
+    "leaflet": "^1.9.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-leaflet": "^5.0.0",
     "recharts": "^3.10.1"
   },
   "devDependencies": {
