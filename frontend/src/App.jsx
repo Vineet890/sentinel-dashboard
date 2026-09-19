@@ -1024,6 +1024,7 @@ export default function App() {
     ])
 
     setAcoData((prev) => [
+      ...prev.slice(-(MAX_PTS - 1)),
       { t, v: Number(data.acoustic) },
     ])
 
