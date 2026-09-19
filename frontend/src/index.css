@@ -33,3 +33,8 @@ body {
 .sentinel-log { scrollbar-width: thin; scrollbar-color: #1C3050 transparent; }
 
 button:focus-visible { outline: 1px solid #3A85D0; outline-offset: 2px; }
+
+/* Dark mode filter for standard OSM tiles */
+.leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9);
+}

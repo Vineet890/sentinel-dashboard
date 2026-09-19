@@ -910,8 +910,8 @@ function MapCard({ state }) {
           attributionControl={false}
         >
           <TileLayer
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
-            attribution='&copy; <a href="https://carto.com/">CartoDB</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           />
           <Marker position={[MINE_LOCATION.lat, MINE_LOCATION.lng]} icon={customIcon}>
             <Popup>
@@ -932,7 +932,7 @@ function MapCard({ state }) {
           position: 'absolute', bottom: 2, right: 4, zIndex: 1000,
           fontFamily: 'sans-serif', fontSize: 9, color: '#5A7592', pointerEvents: 'none'
         }}>
-          © OpenStreetMap © CartoDB
+          © OpenStreetMap contributors
         </div>
       </div>
     </div>
