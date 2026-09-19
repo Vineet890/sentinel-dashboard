@@ -3,6 +3,10 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer,
 } from 'recharts'
+import {
+  GoogleMap, useJsApiLoader, MarkerF, InfoWindowF,
+} from '@react-google-maps/api'
+import { useSentinelSocket } from './hooks/useSentinelSocket'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -29,6 +33,32 @@ const C = {
 
 const MAX_PTS = 42
 let _logId = 10
+
+const SITE_META = {
+  site: 'Alpha-3',
+  depth: '312 m',
+  zone: 'Level-7B',
+  operator: 'R. Kowalski',
+}
+
+// Dhanbad, Jharkhand — major coal mining region in India
+const MINE_LOCATION = { lat: 23.7957, lng: 86.4304 }
+
+const DARK_MAP_STYLES = [
+  { elementType: 'geometry', stylers: [{ color: '#0B1525' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#0B1525' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#5A7592' }] },
+  { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#1C3050' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#152130' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#1C3050' }] },
+  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#1C3050' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#060D1B' }] },
+  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#3A5270' }] },
+  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#0E1B2E' }] },
+  { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#5A7592' }] },
+  { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#0E1B2E' }] },
+  { featureType: 'landscape.natural', elementType: 'geometry', stylers: [{ color: '#0E1B2E' }] },
+]
 
 function nowStr() {
   return new Date().toLocaleTimeString('en-GB', { hour12: false })
@@ -481,7 +511,7 @@ function EventLog({ entries }) {
 
 // ─── Top bar ─────────────────────────────────────────────────────────────────
 
-function TopBar({ state, nodeId, connected, lastUpdateAgo, manualOverride }) {
+function TopBar({ state, nodeId, connected, lastUpdateAgo, manualOverride, dataSource }) {
   const [clock, setClock] = useState(nowStr())
 
   useEffect(() => {
@@ -500,11 +530,11 @@ function TopBar({ state, nodeId, connected, lastUpdateAgo, manualOverride }) {
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
           <path d="M12 2L2 7l10 5 10-5-10-5z" stroke={C.blue} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
           <path d="M2 17l10 5 10-5" stroke={C.blue} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          <path d="M2 12l10 5 10-5" stroke={C.blue} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" opacity="0.4" />
+          <path d="M2 12l10 5 10-5" stroke={C.blue} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
         <span style={{
-          fontFamily: "'Barlow Condensed', sans-serif", fontSize: 19, fontWeight: 700,
-          letterSpacing: '0.14em', textTransform: 'uppercase', color: C.ink,
+          fontFamily: "'Barlow Condensed', sans-serif", fontSize: 17, fontWeight: 700,
+          letterSpacing: '0.12em', textTransform: 'uppercase', color: C.ink,
         }}>
           Sentinel
         </span>
@@ -518,7 +548,7 @@ function TopBar({ state, nodeId, connected, lastUpdateAgo, manualOverride }) {
 
       <div style={{ flex: 1 }} />
 
-      {/* Connection dot */}
+      {/* Connection dot + data source indicator */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <div
           className={connected ? 'dot-online' : ''}
@@ -533,7 +563,10 @@ function TopBar({ state, nodeId, connected, lastUpdateAgo, manualOverride }) {
           letterSpacing: '0.12em', textTransform: 'uppercase',
           color: connected ? '#2ECC71' : '#E74C3C',
         }}>
-          {connected ? 'Online' : 'Offline'}
+          {connected
+            ? (dataSource === 'ws' ? 'Live (WS)' : 'Live (Poll)')
+            : 'Offline'
+          }
         </span>
         {!connected && lastUpdateAgo !== null && (
           <span style={{
@@ -811,6 +844,9 @@ export default function App() {
   const [uptime, setUptime] = useState('—')
   const [camConnected, setCamConnected] = useState(false)
 
+  // ─── WebSocket hook (primary data source) ─────────────────────────────────
+  const { wsConnected, wsFailed, latestData: wsData, dataSource } = useSentinelSocket()
+
   const stateRef = useRef('NORMAL')
   useEffect(() => { stateRef.current = systemState }, [systemState])
 
@@ -838,8 +874,62 @@ export default function App() {
     setLogEntries((prev) => [...prev.slice(-149), { id: ++_logId, ts: nowStr(), msg, level }])
   }, [])
 
-  // Fetch live telemetry from backend
+  // ─── Shared function: apply a telemetry data object to all chart/state vars ─
+  const applyTelemetry = useCallback((data) => {
+    const t = tsFor(new Date(data.timestamp))
+
+    lastFetchRef.current = Date.now()
+    setConnected(true)
+    setLastUpdateAgo(null)
+    setCamConnected(true)
+
+    if (data.risk_score) setRiskScore(String(data.risk_score))
+    if (data.risk_label) setRiskLabel(data.risk_label)
+    if (data.uptime) setUptime(data.uptime)
+
+    if (!manualOverrideRef.current) {
+      setSystemState(data.status)
+    }
+
+    setVibData((prev) => [
+      ...prev.slice(-(MAX_PTS - 1)),
+      { t, v: Number(data.vibration) },
+    ])
+
+    setAcoData((prev) => [
+      ...prev.slice(-(MAX_PTS - 1)),
+      { t, v: Number(data.acoustic) },
+    ])
+
+    setEnvData((prev) => [
+      ...prev.slice(-(MAX_PTS - 1)),
+      {
+        t,
+        v: Number(data.pressure),
+        v2: Number(data.temperature),
+      },
+    ])
+
+    setStrData((prev) => [
+      ...prev.slice(-(MAX_PTS - 1)),
+      { t, v: Number(data.strain) },
+    ])
+  }, [])
+
+  // ─── WebSocket data processor (primary data path) ──────────────────────────
   useEffect(() => {
+    if (wsData) {
+      applyTelemetry(wsData)
+    }
+  }, [wsData, applyTelemetry])
+
+  // ─── REST polling fallback (activates only when WebSocket has failed) ──────
+  useEffect(() => {
+    // If WS is connected or still trying to connect, don't start polling
+    if (!wsFailed) return
+
+    console.log('[Sentinel] WebSocket unavailable — activating REST polling fallback')
+
     const fetchTelemetry = async () => {
       try {
         const response = await fetch('http://localhost:5000/api/telemetry')
@@ -849,47 +939,7 @@ export default function App() {
         }
 
         const data = await response.json()
-
-        const t = tsFor(new Date(data.timestamp))
-
-        lastFetchRef.current = Date.now()
-        setConnected(true)
-        setLastUpdateAgo(null)
-        setCamConnected(true)
-
-        // Update risk and uptime from backend-computed values
-        if (data.risk_score) setRiskScore(data.risk_score)
-        if (data.risk_label) setRiskLabel(data.risk_label)
-        if (data.uptime) setUptime(data.uptime)
-
-        // Only update system state from API if manual override is not active
-        if (!manualOverrideRef.current) {
-          setSystemState(data.status)
-        }
-
-        setVibData((prev) => [
-          ...prev.slice(-(MAX_PTS - 1)),
-          { t, v: Number(data.vibration) },
-        ])
-
-        setAcoData((prev) => [
-          ...prev.slice(-(MAX_PTS - 1)),
-          { t, v: Number(data.acoustic) },
-        ])
-
-        setEnvData((prev) => [
-          ...prev.slice(-(MAX_PTS - 1)),
-          {
-            t,
-            v: Number(data.pressure),
-            v2: Number(data.temperature),
-          },
-        ])
-
-        setStrData((prev) => [
-          ...prev.slice(-(MAX_PTS - 1)),
-          { t, v: Number(data.strain) },
-        ])
+        applyTelemetry(data)
       } catch (error) {
         console.error('Telemetry fetch failed:', error)
         setConnected(false)
@@ -902,7 +952,7 @@ export default function App() {
     const interval = setInterval(fetchTelemetry, 2000)
 
     return () => clearInterval(interval)
-  }, [])
+  }, [wsFailed, applyTelemetry])
 
   // Camera timestamp — every 30 s
   useEffect(() => {
@@ -979,7 +1029,7 @@ export default function App() {
       display: 'flex', flexDirection: 'column', height: '100vh',
       background: C.bg, overflow: 'hidden',
     }}>
-      <TopBar state={systemState} nodeId="MN-04" connected={connected} lastUpdateAgo={lastUpdateAgo} manualOverride={manualOverride} />
+      <TopBar state={systemState} nodeId="MN-04" connected={connected} lastUpdateAgo={lastUpdateAgo} manualOverride={manualOverride} dataSource={dataSource} />
 
       <main style={{
         flex: 1, display: 'grid',
