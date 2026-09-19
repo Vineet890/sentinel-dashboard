@@ -2,7 +2,7 @@
 
 **Real-time mine subsidence early-warning system** — a multi-sensor monitoring dashboard built for underground coal and mineral mines. Designed to detect precursors to ground collapse through continuous analysis of vibration, acoustic, pressure, temperature, and structural strain data, and to trigger GSM-based emergency alerts when thresholds are breached.
 
-Built for **Smart India Hackathon 2024** under the problem statement for intelligent mine safety infrastructure.
+Built for **Smart India Hackathon 2025** under the problem statement for intelligent mine safety infrastructure.
 
 ---
 
@@ -125,6 +125,7 @@ sentinel-dashboard/
 |---|---|---|
 | `GET` | `/api/telemetry` | Latest sensor reading as JSON object |
 | `GET` | `/api/events` | Last 20 sensor readings as JSON array (newest first) |
+| `GET` | `/api/camera` | Latest captured JPEG frame from the Jetson camera |
 | `POST` | `/api/test-alert` | Triggers GSM alert; returns `{ success: true, message: "..." }` |
 
 ### Sensor Data Schema
@@ -185,10 +186,12 @@ When the physical sensor pipeline is ready, the swap is a single-line change:
 
 ## Pre-Deployment Checklist (Jetson Nano)
 
+Before deploying to an offline Jetson Nano:
+
 - [ ] **Self-host fonts** — download Barlow Condensed, IBM Plex Sans, and JetBrains Mono locally; update the `@import` in `frontend/src/index.css` to point to local paths
-- [ ] **Wire GSM alert** — connect `POST /api/test-alert` in `server.js` to the SIM900A AT command script via Node's `child_process`
-- [ ] **Camera feed** — replace the camera placeholder in `BottomBar` with a live frame from the Jetson camera capture endpoint
-- [ ] **Dynamic uptime and risk index** — wire the static `7d 14h` uptime and `LOW — 0.12` risk index values to computed real-time equivalents
+- [x] **Wire GSM alert** — connected `POST /api/test-alert` to `send_sms.py` via `child_process`
+- [x] **Camera feed** — added `/api/camera` endpoint to serve the latest Jetson JPEG frame
+- [x] **Dynamic risk engine** — risk and uptime are now dynamically computed from the live backend stream
 
 ---
 
