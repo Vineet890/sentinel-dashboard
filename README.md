@@ -1,6 +1,6 @@
 # Sentinel
 
-Real-time mine subsidence early-warning system — a multi-sensor monitoring dashboard built for underground coal and mineral mines. Designed to detect precursors to ground collapse through continuous analysis of vibration, acoustic, pressure, temperature, and structural strain data, and to automatically trigger SMS emergency alerts when thresholds are breached.
+Real-time mine subsidence early-warning system — a multi-sensor monitoring dashboard built for underground coal and mineral mines. Designed to detect precursors to ground collapse through continuous analysis of vibration, acoustic, pressure, and temperature data, and to automatically trigger SMS emergency alerts when thresholds are breached.
 
 Built for Smart India Hackathon 2026 under the problem statement for intelligent mine safety infrastructure.
 
@@ -21,7 +21,7 @@ Sentinel addresses this by deploying a low-cost sensor node directly at the mini
 │  │ • MPU-6050      │──I²C─▶│ • ML Anomaly Detection        │    │
 │  │ • Sound sensor  │       │ • WebSocket Stream (Primary)  │    │
 │  │ • BMP180        │       │ • REST API (Fallback)         │    │
-│  │ • Load cell     │       │ • Automatic State Monitor     │──┐ │
+│  │                 │       │ • Automatic State Monitor     │──┐ │
 │  └─────────────────┘       └────────┬──────────────────────┘  │ │
 └─────────────────────────────────────┼─────────────────────────┼─┘
                                       │                         │
