@@ -58,9 +58,14 @@ const WS_URL = typeof import.meta !== 'undefined'
   ? (import.meta.env?.VITE_JETSON_WS_URL || 'ws://192.168.50.2:8000/ws')
   : 'ws://192.168.50.2:8000/ws'
 
-const MAX_RECONNECT_ATTEMPTS = 3
-const RECONNECT_DELAY_MS = 4000
-const INITIAL_CONNECT_TIMEOUT_MS = 5000
+// Check if WebSocket should be skipped entirely (e.g. for demos without Jetson)
+const DISABLE_WS = typeof import.meta !== 'undefined' 
+  && import.meta.env?.VITE_DISABLE_WS === 'true'
+
+// Tightened timeouts for faster fallback during live demo
+const MAX_RECONNECT_ATTEMPTS = 1
+const RECONNECT_DELAY_MS = 1000
+const INITIAL_CONNECT_TIMEOUT_MS = 2000
 
 export function useSentinelSocket() {
   const [wsConnected, setWsConnected] = useState(false)
@@ -99,6 +104,12 @@ export function useSentinelSocket() {
     if (unmounted.current) return
 
     cleanup()
+
+    if (DISABLE_WS) {
+      console.log('[Sentinel WS] WebSocket disabled via env flag — forcing immediate REST fallback')
+      setWsFailed(true)
+      return
+    }
 
     try {
       const ws = new WebSocket(WS_URL)

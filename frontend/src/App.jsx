@@ -828,6 +828,121 @@ function createLogFromTelemetry(data, id) {
   }
 }
 
+// ─── GIS Map Panel ────────────────────────────────────────────────────────────
+
+const MAP_CONTAINER = { width: '100%', height: '100%' }
+
+function MapCard({ state }) {
+  const [infoOpen, setInfoOpen] = useState(false)
+  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || ''
+  
+  const { isLoaded, loadError } = useJsApiLoader({
+    googleMapsApiKey: apiKey,
+  })
+
+  const markerColor = STATE_COLOR[state] || '#2ECC71'
+
+  // SVG marker icon colored by system state
+  const markerIcon = isLoaded ? {
+    path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 110-5 2.5 2.5 0 010 5z',
+    fillColor: markerColor,
+    fillOpacity: 1,
+    strokeColor: '#060D1B',
+    strokeWeight: 1.5,
+    scale: 1.6,
+    anchor: typeof google !== 'undefined' ? new google.maps.Point(12, 22) : undefined,
+  } : null
+
+  const mapOptions = {
+    styles: DARK_MAP_STYLES,
+    disableDefaultUI: true,
+    zoomControl: true,
+  }
+
+  if (!apiKey || loadError) {
+    return (
+      <div style={{
+        background: C.card, borderRadius: 8,
+        border: `1px solid ${C.border}`,
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', gap: 8, height: '100%', minHeight: 120, gridColumn: '1 / -1',
+      }}>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" stroke={C.ghost} strokeWidth="1.5" />
+          <circle cx="12" cy="10" r="3" stroke={C.ghost} strokeWidth="1.5" />
+        </svg>
+        <span style={{
+          fontFamily: "'Barlow Condensed', sans-serif", fontSize: 11, fontWeight: 600,
+          letterSpacing: '0.12em', textTransform: 'uppercase', color: C.ghost,
+        }}>
+          Map unavailable — offline mode
+        </span>
+        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: C.dim }}>
+          {MINE_LOCATION.lat.toFixed(4)}°N, {MINE_LOCATION.lng.toFixed(4)}°E
+        </span>
+      </div>
+    )
+  }
+
+  if (!isLoaded) {
+    return (
+      <div style={{
+        background: C.card, borderRadius: 8, border: `1px solid ${C.border}`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 120, gridColumn: '1 / -1',
+      }}>
+        <span style={{ color: C.dim }}>Loading map…</span>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{
+      background: C.card, borderRadius: 8, border: `1px solid ${C.border}`,
+      overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%', minHeight: 180, gridColumn: '1 / -1',
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '8px 14px', borderBottom: `1px solid ${C.border}`,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{
+            fontFamily: "'Barlow Condensed', sans-serif", fontSize: 13, fontWeight: 700,
+            letterSpacing: '0.10em', textTransform: 'uppercase', color: C.ink,
+          }}>
+            Site Location
+          </span>
+        </div>
+        <span style={{
+          padding: '2px 8px', borderRadius: 3, border: `1px solid ${markerColor}50`,
+          background: markerColor + '18', fontFamily: "'Barlow Condensed', sans-serif",
+          fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase',
+          color: markerColor,
+        }}>
+          MN-04 · {state}
+        </span>
+      </div>
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <GoogleMap mapContainerStyle={MAP_CONTAINER} center={MINE_LOCATION} zoom={13} options={mapOptions}>
+          <MarkerF position={MINE_LOCATION} icon={markerIcon} onClick={() => setInfoOpen(true)} />
+          {infoOpen && (
+            <InfoWindowF position={MINE_LOCATION} onCloseClick={() => setInfoOpen(false)}>
+              <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: '#1a1a1a', minWidth: 160 }}>
+                <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 14, fontWeight: 700 }}>MN-04 — {SITE_META.site}</div>
+                <div>Depth: {SITE_META.depth}</div>
+                <div>Zone: {SITE_META.zone}</div>
+                <div>Operator: {SITE_META.operator}</div>
+                <div style={{ marginTop: 4, fontWeight: 700, color: state === 'CRITICAL' ? '#c0392b' : state === 'WATCH' ? '#d4a017' : '#27ae60' }}>
+                  Status: {state}
+                </div>
+              </div>
+            </InfoWindowF>
+          )}
+        </GoogleMap>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const [systemState, setSystemState] = useState('NORMAL')
   const [connected, setConnected] = useState(false)
@@ -1040,11 +1155,11 @@ export default function App() {
         {/* Left — Status card */}
         <StatusCard state={systemState} onStateChange={setSystemState} manualOverride={manualOverride} onSetOverride={setManualOverride} />
 
-        {/* Center — 2×2 chart grid */}
+        {/* Center — 2×3 grid (charts + map) */}
         <div style={{
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
-          gridTemplateRows: '1fr 1fr',
+          gridTemplateRows: '1fr 1fr 1fr',
           gap: 9, minHeight: 0,
         }}>
           <ChartCard
@@ -1085,6 +1200,7 @@ export default function App() {
             yDomain={[820, 1080]}
             latestValue={lastStr !== undefined ? `${lastStr} kgF` : '—'}
           />
+          <MapCard state={systemState} />
         </div>
 
         {/* Right — Event log */}
