@@ -77,7 +77,7 @@ function ChartTooltip({ active, payload, label }) {
 
 // ─── Chart card ───────────────────────────────────────────────────────────────
 
-function ChartCard({ title, data, lines, unit, yDomain, y2Domain, latestValue, yAxisWidth, y2AxisWidth }) {
+function ChartCard({ title, data, lines, unit, yDomain, y2Domain, latestValue, yAxisWidth, y2AxisWidth, style }) {
   const dual = !!y2Domain
   const latest = data[data.length - 1]
   const hasData = data.length > 0
@@ -87,6 +87,7 @@ function ChartCard({ title, data, lines, unit, yDomain, y2Domain, latestValue, y
       background: C.card, border: `1px solid ${C.border}`,
       borderRadius: 8, padding: '10px 12px 6px',
       display: 'flex', flexDirection: 'column', gap: 6,
+      ...style
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span style={{
@@ -960,7 +961,6 @@ export default function App() {
   const [vibData, setVibData] = useState([])
   const [acoData, setAcoData] = useState([])
   const [envData, setEnvData] = useState([])
-  const [strData, setStrData] = useState([])
   const [logEntries, setLogEntries] = useState([])
   const [camTs, setCamTs] = useState(nowStr)
   const [manualOverride, setManualOverride] = useState(false)
@@ -1024,7 +1024,6 @@ export default function App() {
     ])
 
     setAcoData((prev) => [
-      ...prev.slice(-(MAX_PTS - 1)),
       { t, v: Number(data.acoustic) },
     ])
 
@@ -1035,11 +1034,6 @@ export default function App() {
         v: Number(data.pressure),
         v2: Number(data.temperature),
       },
-    ])
-
-    setStrData((prev) => [
-      ...prev.slice(-(MAX_PTS - 1)),
-      { t, v: Number(data.strain) },
     ])
   }, [])
 
@@ -1166,7 +1160,6 @@ export default function App() {
   const lastVib = vibData[vibData.length - 1]?.v
   const lastAco = acoData[acoData.length - 1]?.v
   const lastEnv = envData[envData.length - 1]
-  const lastStr = strData[strData.length - 1]?.v
 
   return (
     <div style={{
@@ -1214,20 +1207,13 @@ export default function App() {
               { key: 'v', color: '#2ECC71', name: 'mbar', yAxisId: 'left' },
               { key: 'v2', color: '#F1C40F', name: '°C', yAxisId: 'right' },
             ]}
-            unit="Pressure (mbar) · Temperature (°C)"
-            yDomain={[1007, 1023]}
-            y2Domain={[15, 30]}
-            latestValue={lastEnv ? `${lastEnv.v} mbar · ${lastEnv.v2}°C` : '—'}
+            unit="Barometer & Temp"
+            yDomain={[1005, 1025]}
+            y2Domain={[10, 40]}
+            latestValue={lastEnv !== undefined ? `${lastEnv.v} mbar · ${lastEnv.v2}°C` : '—'}
             yAxisWidth={50}
             y2AxisWidth={26}
-          />
-          <ChartCard
-            title="Structural Strain"
-            data={strData}
-            lines={[{ key: 'v', color: '#D35400', name: 'kgF', yAxisId: 'left' }]}
-            unit="Load Cell (kgF)"
-            yDomain={[820, 1080]}
-            latestValue={lastStr !== undefined ? `${lastStr} kgF` : '—'}
+            style={{ gridColumn: '1 / -1' }}
           />
           <MapCard state={systemState} />
         </div>

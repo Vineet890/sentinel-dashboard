@@ -59,16 +59,14 @@ app.get('/api/telemetry', (req, res) => {
         row.server_start = SERVER_START;
 
         // Compute risk score from sensor values (normalised 0–1)
-        // Weighted combination: vibration contributes most, then acoustic, then strain deviation
+        // Weighted combination: vibration contributes most, then acoustic
         const vib = parseFloat(row.vibration) || 0;
         const aco = parseFloat(row.acoustic) || 0;
-        const strain = parseFloat(row.strain) || 0;
 
         const vibNorm = Math.min(vib / 0.30, 1.0);           // 0.30 G = max expected
         const acoNorm = Math.min((aco - 40) / 60, 1.0);      // 40–100 dB range
-        const strainNorm = Math.min(Math.abs(strain - 900) / 150, 1.0); // deviation from 900 kgF baseline
 
-        const riskScore = (0.50 * vibNorm + 0.30 * acoNorm + 0.20 * strainNorm);
+        const riskScore = (0.60 * vibNorm + 0.40 * acoNorm);
         row.risk_score = riskScore.toFixed(2);
         row.risk_label = riskScore < 0.3 ? 'LOW' : riskScore < 0.6 ? 'MODERATE' : 'HIGH';
 

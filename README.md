@@ -40,7 +40,7 @@ The core telemetry stack runs locally on the edge hardware (Jetson Nano) to ensu
 
 ## Features
 
-* **Live Sensor Charts**: 4 real-time scrolling charts (ground vibration, acoustic signature, environmental trend, structural strain) updated instantly.
+* **Live Sensor Charts**: 3 real-time scrolling charts (ground vibration, acoustic signature, environmental trend) updated instantly.
 * **3-State Alert System**: `NORMAL` / `WATCH` / `CRITICAL` state machine driven by the sensor anomaly model, with distinct visual and glow indicators.
 * **Automatic & Manual SMS Alerts**: Edge-triggered automatic SMS dispatch upon entering the `CRITICAL` state, preventing duplicate spam. Includes a manual "Test Alert" dashboard override for drills.
 * **GIS Map Panel**: Integrated Leaflet + OpenStreetMap panel styled to match the dark dashboard theme for precise site geolocation (fully open-source, no billing APIs required).
