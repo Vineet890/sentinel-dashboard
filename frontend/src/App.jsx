@@ -38,7 +38,8 @@ const SITE_META = {
   site: 'Alpha-3',
   depth: '312 m',
   zone: 'Level-7B',
-  operator: 'R. Kowalski',
+  operator: 'Sentinel Control',
+  location: 'Dhanbad, Jharkhand',
 }
 
 // Dhanbad, Jharkhand — major coal mining region in India
@@ -646,10 +647,11 @@ function BottomBar({ camTimestamp, onSendAlert, riskScore, riskLabel, uptime, ca
   const filledBars = Math.max(1, Math.min(10, Math.round(riskVal * 10)))
 
   const META = [
-    { label: 'SITE', value: 'Alpha-3' },
-    { label: 'DEPTH', value: '312 m' },
-    { label: 'ZONE', value: 'Level-7B' },
-    { label: 'OPERATOR', value: 'R. Kowalski' },
+    { label: 'SITE', value: SITE_META.site },
+    { label: 'LOCATION', value: SITE_META.location },
+    { label: 'DEPTH', value: SITE_META.depth },
+    { label: 'ZONE', value: SITE_META.zone },
+    { label: 'OPERATOR', value: SITE_META.operator },
     { label: 'UPTIME', value: uptime || '—' },
   ]
 
@@ -956,7 +958,8 @@ export default function App() {
   const [lastUpdateAgo, setLastUpdateAgo] = useState(null)
   const [riskScore, setRiskScore] = useState('0.00')
   const [riskLabel, setRiskLabel] = useState('LOW')
-  const [uptime, setUptime] = useState('—')
+  const [serverStart, setServerStart] = useState(null)
+  const [uptimeStr, setUptimeStr] = useState('—')
   const [camConnected, setCamConnected] = useState(false)
 
   // ─── WebSocket hook (primary data source) ─────────────────────────────────
@@ -1000,7 +1003,7 @@ export default function App() {
 
     if (data.risk_score) setRiskScore(String(data.risk_score))
     if (data.risk_label) setRiskLabel(data.risk_label)
-    if (data.uptime) setUptime(data.uptime)
+    if (data.server_start) setServerStart(data.server_start)
 
     if (!manualOverrideRef.current) {
       setSystemState(data.status)
@@ -1030,6 +1033,20 @@ export default function App() {
       { t, v: Number(data.strain) },
     ])
   }, [])
+
+  // ─── Dynamic Uptime Calculator ───────────────────────────────────────────────
+  useEffect(() => {
+    if (!serverStart) return
+    const calcUptime = () => {
+      const ms = Date.now() - serverStart
+      const d = Math.floor(ms / 86400000)
+      const h = Math.floor((ms % 86400000) / 3600000)
+      setUptimeStr(`${d}d ${h}h`)
+    }
+    calcUptime() // run immediately
+    const interval = setInterval(calcUptime, 60000) // update every minute
+    return () => clearInterval(interval)
+  }, [serverStart])
 
   // ─── WebSocket data processor (primary data path) ──────────────────────────
   useEffect(() => {
@@ -1215,7 +1232,7 @@ export default function App() {
         onSendAlert={handleSendAlert}
         riskScore={riskScore}
         riskLabel={riskLabel}
-        uptime={uptime}
+        uptime={uptimeStr}
         camConnected={camConnected}
       />
     </div>

@@ -49,11 +49,14 @@ app.get('/api/telemetry', (req, res) => {
     try {
         const row = readLatestRow();
 
-        // Compute uptime from server start
+        // Compute uptime from server start (legacy string for old clients)
         const uptimeMs = Date.now() - SERVER_START;
         const days = Math.floor(uptimeMs / 86400000);
         const hours = Math.floor((uptimeMs % 86400000) / 3600000);
         row.uptime = `${days}d ${hours}h`;
+        
+        // Expose raw start timestamp so frontend can calculate dynamic uptime
+        row.server_start = SERVER_START;
 
         // Compute risk score from sensor values (normalised 0–1)
         // Weighted combination: vibration contributes most, then acoustic, then strain deviation
