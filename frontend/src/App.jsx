@@ -620,14 +620,16 @@ function TopBar({ state, nodeId, connected, lastUpdateAgo, manualOverride, dataS
 }
 
 function BottomBar({ camTimestamp, onSendAlert, riskScore, riskLabel, uptime, camConnected }) {
-  const [alertSent, setAlertSent] = useState(false)
+  const [alertState, setAlertState] = useState('idle') // idle | sending | success | error
   const [camError, setCamError] = useState(false)
   const [camKey, setCamKey] = useState(0)
 
-  const handleAlert = () => {
-    onSendAlert()
-    setAlertSent(true)
-    setTimeout(() => setAlertSent(false), 3000)
+  const handleAlert = async () => {
+    if (alertState === 'sending') return
+    setAlertState('sending')
+    const success = await onSendAlert()
+    setAlertState(success ? 'success' : 'error')
+    setTimeout(() => setAlertState('idle'), 3000)
   }
 
   // Refresh camera image every 10 seconds
@@ -759,25 +761,27 @@ function BottomBar({ camTimestamp, onSendAlert, riskScore, riskLabel, uptime, ca
 
       <div style={{ width: 1, height: 40, background: C.border, flexShrink: 0 }} />
 
-      {/* GSM alert button */}
+      {/* SMS alert button */}
       <button
         onClick={handleAlert}
+        disabled={alertState === 'sending'}
         style={{
           display: 'flex', alignItems: 'center', gap: 7, padding: '8px 18px',
           fontFamily: "'Barlow Condensed', sans-serif", fontSize: 12, fontWeight: 700,
           letterSpacing: '0.14em', textTransform: 'uppercase',
-          border: alertSent ? '1px solid #2ECC71' : '1px solid #E74C3C',
-          borderRadius: 6, cursor: 'pointer',
-          background: alertSent ? '#2ECC7118' : 'transparent',
-          color: alertSent ? '#2ECC71' : '#E74C3C',
+          border: alertState === 'success' ? '1px solid #2ECC71' : alertState === 'error' ? '1px solid #E74C3C' : alertState === 'sending' ? '1px solid #F1C40F' : '1px solid #E74C3C',
+          borderRadius: 6, cursor: alertState === 'sending' ? 'not-allowed' : 'pointer',
+          background: alertState === 'success' ? '#2ECC7118' : alertState === 'error' ? '#E74C3C18' : alertState === 'sending' ? '#F1C40F18' : 'transparent',
+          color: alertState === 'success' ? '#2ECC71' : alertState === 'error' ? '#E74C3C' : alertState === 'sending' ? '#F1C40F' : '#E74C3C',
           transition: 'all 0.25s',
           flexShrink: 0,
+          opacity: alertState === 'sending' ? 0.7 : 1,
         }}
       >
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
           <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 014.52 12 19.79 19.79 0 011.2 3.37 2 2 0 013.18 1h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L7.09 8.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-        {alertSent ? 'Alert Sent' : 'Send Test Alert (GSM)'}
+        {alertState === 'sending' ? 'Sending...' : alertState === 'success' ? 'SMS sent successfully' : alertState === 'error' ? 'SMS failed' : 'Send Test Alert (SMS)'}
       </button>
     </div>
   )
@@ -1114,18 +1118,21 @@ export default function App() {
 
   const handleSendAlert = useCallback(async () => {
     try {
-      const response = await fetch(
-        'http://localhost:5000/api/test-alert',
-        {
-          method: 'POST',
-        }
-      )
-
+      const response = await fetch('http://localhost:5000/api/test-alert', {
+        method: 'POST',
+      })
       const result = await response.json()
-
-      addLog(result.message, 'warn')
+      
+      if (result.success) {
+        addLog(result.message, 'warn')
+        return true
+      } else {
+        addLog(result.message || 'Alert dispatch failed', 'critical')
+        return false
+      }
     } catch (error) {
       addLog('Alert dispatch failed', 'critical')
+      return false
     }
   }, [addLog])
 

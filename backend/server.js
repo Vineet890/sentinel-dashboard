@@ -121,42 +121,56 @@ app.get('/api/camera', (req, res) => {
     }
 });
 
-// ─── GSM Alert ─────────────────────────────────────────────────────────────────
-// Attempts to execute the SIM900A SMS script. Falls back to mock if hardware
-// is not connected (script not found or execution fails).
+// Load env variables
+require('dotenv').config();
 
-app.post('/api/test-alert', (req, res) => {
-    const smsScript = path.join(__dirname, 'scripts', 'send_sms.py');
+// ─── SMS Alert Gateway ─────────────────────────────────────────────────────────
 
-    // Check if the hardware SMS script exists
-    if (fs.existsSync(smsScript)) {
-        const message = 'SENTINEL ALERT: Mine subsidence warning — immediate inspection required at Site Alpha-3, Zone Level-7B';
+app.post('/api/test-alert', async (req, res) => {
+    try {
+        const apiKey = process.env.SMS_API_KEY;
+        const phone = process.env.ALERT_PHONE;
 
-        exec(`python3 "${smsScript}" "${message}"`, { timeout: 10000 }, (error, stdout, stderr) => {
-            if (error) {
-                console.error('GSM hardware dispatch failed:', stderr || error.message);
-                // Fall back to mock response so the dashboard doesn't break
-                res.json({
-                    success: true,
-                    message: 'Alert logged (GSM hardware unavailable)',
-                    mode: 'fallback'
-                });
-            } else {
-                console.log('GSM SMS dispatched:', stdout.trim());
-                res.json({
-                    success: true,
-                    message: 'SMS dispatched via SIM900A',
-                    mode: 'hardware'
-                });
-            }
+        if (!apiKey || !phone) {
+            console.error('SMS Gateway missing config: SMS_API_KEY or ALERT_PHONE not set in backend .env');
+            return res.json({ success: false, message: 'SMS config missing on server' });
+        }
+
+        const payload = {
+            phoneNumber: phone,
+            message: "SENTINEL ALERT: Critical subsidence risk detected. Immediate inspection required."
+        };
+
+        const response = await fetch('https://us-central1-sms-gateway-ae7e1.cloudfunctions.net/api_sms_send', {
+            method: 'POST',
+            headers: {
+                'X-API-Key': apiKey,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
         });
-    } else {
-        // No hardware script — mock mode for development
-        console.log('Test alert triggered (mock — SIM900A script not found)');
-        res.json({
-            success: true,
-            message: 'Test alert sent (mock)',
-            mode: 'mock'
+
+        const data = await response.json();
+
+        if (response.ok) {
+            console.log('SMS Gateway Success:', data);
+            return res.json({
+                success: true,
+                message: 'SMS queued successfully',
+                smsId: data.smsId || 'unknown'
+            });
+        } else {
+            console.error('SMS Gateway API Error:', response.status, data);
+            return res.json({
+                success: false,
+                message: 'Failed to send SMS'
+            });
+        }
+    } catch (error) {
+        console.error('SMS Request failed:', error.message);
+        return res.json({
+            success: false,
+            message: 'Failed to send SMS'
         });
     }
 });
