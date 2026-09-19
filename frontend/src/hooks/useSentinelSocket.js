@@ -22,6 +22,7 @@ function normalizeTelemetry(raw) {
       risk_score: raw.risk_score,
       risk_label: raw.risk_label,
       uptime: raw.uptime,
+      server_start: raw.server_start,
     }
   }
 
@@ -49,6 +50,7 @@ function normalizeTelemetry(raw) {
     risk_score: raw.risk_score,
     risk_label: raw.risk_label,
     uptime: raw.uptime,
+    server_start: raw.server_start || raw.serverStart,
   }
 }
 
